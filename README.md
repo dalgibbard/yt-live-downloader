@@ -1,4 +1,7 @@
 # yt-live-downloader
+
+![Screenshot_20240103_234758](https://github.com/dalgibbard/yt-live-downloader/assets/1159620/82b26879-f7eb-42f1-95b4-98445d049a08)
+
 Crappy Flask App to download Youtube live streams, since most other apps don't seem to natively support the ```live-from-start``` or ```wait-for-video``` flags, and they often have lots of fluffy features I don't need (just want to save an ongoing stream for later viewing for now).
 This should also work for simple video downloading anyway, but not tested yet.
 
