@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube Live Video Downloader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #222;
+            margin: 0;
+            padding: 0;
+            text-align: center;
+            color: #fff;
+        }
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #333;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+        }
+        h1 {
+            color: #007bff;
+        }
+        form {
+            margin-top: 20px;
+        }
+        label {
+            font-weight: bold;
+        }
+        input[type="text"], input[type="submit"] {
+            width: 90%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        input[type="submit"] {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #007bff;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>YouTube Live Video Downloader</h1>
+        <form method="POST">
+            <label for="youtube_url">YouTube Live Video URL:</label>
+            <br>
+            <input type="text" name="youtube_url" required>
+            <br>
+            <input type="submit" value="Download">
+        </form>
+        <div class="downloads">
+            <table>
+                <tr>
+                    <th>URL</th>
+                    <th>Status</th>
+                    <th>Downloaded (MB)</th>
+                    <th>Actions</th>
+                </tr>
+                {% for download in downloads_metadata %}
+                <tr id="download-{{ download['id'] }}">
+                    <td>{{ download['url'] }}</td>
+                    <td class="status">{{ download['status'] }}</td>
+                    <td class="downloaded">{{ "%.2f"|format(download['downloaded_bytes'] / 1024 / 1024) }}</td>
+                    <td>
+                        <form method="POST" action="/delete_download/{{ download['id'] }}" style="display: inline;">
+                            <input type="submit" class="delete-button" value="Delete">
+                            <input type="checkbox" name="delete_files"> Delete Files
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </div>
+    <footer>
+        <p>Created with ChatGPT</p>
+    </footer>
+    
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        function updateStatus() {
+            $.ajax({
+                url: '/get_status',
+                method: 'GET',
+                dataType: 'json',
+                success: function(data) {
+                    data.forEach(function(download) {
+                        var downloadDiv = $('#download-' + download.id);
+                        downloadDiv.find('.status').text(download.status);
+                        downloadDiv.find('.downloaded').text((download.downloaded_bytes / 1024 / 1024).toFixed(2) + ' MB');
+                    });
+                }
+            });
+        }
+
+        setInterval(updateStatus, 3000);
+
+        $(document).ready(function() {
+            updateStatus();
+        });
+    </script>
+</body>
+</html>
