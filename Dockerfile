@@ -1,10 +1,11 @@
 FROM python:3-slim
-RUN python3 -m pip install Flask flask_basicauth requests
 
-RUN mkdir -p /src
-COPY *.py /src/
-COPY templates/ /src/templates/
+RUN mkdir -p /app
+WORKDIR /app
+COPY *.py /app/
+COPY requirements.txt /app/
+COPY templates/ /app/templates/
+RUN python3 -m pip install -r requirements.txt
 
-WORKDIR /src
-EXPOSE 5555
+EXPOSE 5000
 CMD ["./app.py"]

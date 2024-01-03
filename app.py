@@ -1,10 +1,20 @@
+#!/usr/bin/env python3
 import os
 import subprocess
-import requests
 import json
 from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask_basicauth import BasicAuth
 
 app = Flask(__name__)
+
+# Enable simple BasicAuth by setting envvars
+username = os.environ.get("USERNAME", None)
+password = os.environ.get("PASSWORD", None)
+if username and password:
+    app.config['BASIC_AUTH_USERNAME'] = username
+    app.config['BASIC_AUTH_PASSWORD'] = password
+    basic_auth = BasicAuth(app)
+    app.config['BASIC_AUTH_FORCE'] = True
 
 DOWNLOAD_FOLDER = 'downloads'
 METADATA_FILE = 'downloads_metadata.json'
@@ -54,12 +64,6 @@ def get_status():
         status_info.append(download)
     return jsonify(status_info)
 
-def get_download_status(port):
-    try:
-        response = requests.get(f'http://localhost:{port}/status')
-        return response.json()
-    except requests.RequestException:
-        return {"status": "Error", "downloaded_bytes": 0}
 
 @app.route('/delete_download/<int:download_id>', methods=['POST'])
 def delete_download(download_id):
