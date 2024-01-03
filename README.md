@@ -9,6 +9,7 @@ This should also work for simple video downloading anyway, but not tested yet.
 * yt-dlp doesn't support interrupts, and python doesn't allow for thread killing. So initially I had downloader.py opening it's own Flask server, but that results in "Bad File Descriptor" errors. So for now, information exchange between threads is via files on disk, and that seems to work OK for now. Ideally, some sort of queue (and improved metadata) implementation would be better, be it Redis or MongoDB etc.
 
 ## To Do
+* Add video title back into download table
 * Fix/Test Docker image
 * Add example docker-compose
 * Add optional BasicAuth support
