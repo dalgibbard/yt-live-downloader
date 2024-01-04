@@ -41,7 +41,7 @@ def index():
         youtube_url = request.form['youtube_url']
         download_id = len(downloads_metadata)
         download_path = os.path.join(app.config['DOWNLOAD_FOLDER'], f'download_{download_id}.mp4')
-        status_file = f'status_{download_id}.json'
+        status_file = os.path.join(app.config['DOWNLOAD_FOLDER'], f'status_{download_id}.json')
         command = f'python3 downloader.py {youtube_url} {download_path} {status_file}'
         process = subprocess.Popen(command, shell=True)
         downloads_metadata.append({"id": download_id, "url": youtube_url, "status": "In Progress", "downloaded_bytes": 0})

@@ -29,10 +29,12 @@ docker compose up -d
 
 ## To Do
 * Add video title back into download table
+* On completion, rename the downloaded file to the Video Title name
+* Bug: Downloaded bytes value in the Progress flicks between the video + audio values
+* Read the existing status files on startup to work out which downloads were cancelled, and update the status accordingly
 * Improve Queue Handling
 * Improve Metadata handling
 * Maybe use websockets instead of Ajax for status updates, and switch to React etc.
-* Support file playback in browser
+* Support file playback + download in browser
 * Better handling of errors
-* On completion, rename the downloaded file to the Video Title name
 * Other bugs I probably haven't noticed yet. It's late, i'm tired.
