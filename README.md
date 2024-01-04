@@ -29,10 +29,6 @@ docker compose up -d
 
 ## To Do
 * Add video title back into download table
-* Fix/Test Docker image
-* Add example docker-compose
-* Add optional BasicAuth support
-* Download dir set by Envvars
 * Improve Queue Handling
 * Improve Metadata handling
 * Maybe use websockets instead of Ajax for status updates, and switch to React etc.

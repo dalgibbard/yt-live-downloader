@@ -87,4 +87,4 @@ if __name__ == '__main__':
     downloads_metadata = load_downloads_metadata()
     if not os.path.exists(DOWNLOAD_FOLDER):
         os.makedirs(DOWNLOAD_FOLDER)
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True)

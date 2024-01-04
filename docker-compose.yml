@@ -8,6 +8,9 @@ services:
     image: dalgibbard/yt-live-downloader:latest
     ports:
     - 5000:5000
+    # Mount a dir from host for downloads + metadata
+    volumes:
+    - ./downloads:/app/downloads
 # Optional:
 #    environment:
 #    - USERNAME=myuser

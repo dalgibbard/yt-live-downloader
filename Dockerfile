@@ -1,6 +1,7 @@
 FROM python:3-slim
 
 RUN mkdir -p /app
+RUN apt-get update && apt-get install ffmpeg -y && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY *.py /app/
 COPY requirements.txt /app/
