@@ -3,6 +3,7 @@ import sys
 import yt_dlp
 import json
 
+
 def download_video(url, download_path, status_file):
     def progress_hook(d):
         if d['status'] == 'downloading':
@@ -34,6 +35,7 @@ def download_video(url, download_path, status_file):
     # Update status to Finished after download is complete
     with open(status_file, 'w') as f:
         json.dump({"status": "Finished", "downloaded_bytes": 0}, f)
+
 
 if __name__ == "__main__":
     video_url = sys.argv[1]

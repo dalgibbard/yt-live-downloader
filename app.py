@@ -23,6 +23,7 @@ app.config['DOWNLOAD_FOLDER'] = DOWNLOAD_FOLDER
 downloads_metadata = []
 download_services = {}
 
+
 def load_downloads_metadata():
     metadata_path = os.path.join(app.config['DOWNLOAD_FOLDER'], METADATA_FILE)
     if os.path.exists(metadata_path):
@@ -30,27 +31,33 @@ def load_downloads_metadata():
             return json.load(metadata_file)
     return []
 
+
 def save_downloads_metadata():
     metadata_path = os.path.join(app.config['DOWNLOAD_FOLDER'], METADATA_FILE)
     with open(metadata_path, 'w') as metadata_file:
         json.dump(downloads_metadata, metadata_file, indent=4)
+
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
     if request.method == 'POST':
         youtube_url = request.form['youtube_url']
         download_id = len(downloads_metadata)
-        download_path = os.path.join(app.config['DOWNLOAD_FOLDER'], f'download_{download_id}.mp4')
-        status_file = os.path.join(app.config['DOWNLOAD_FOLDER'], f'status_{download_id}.json')
+        download_path = os.path.join(
+            app.config['DOWNLOAD_FOLDER'], f'download_{download_id}.mp4')
+        status_file = os.path.join(
+            app.config['DOWNLOAD_FOLDER'], f'status_{download_id}.json')
         command = f'python3 downloader.py {youtube_url} {download_path} {status_file}'
         process = subprocess.Popen(command, shell=True)
-        downloads_metadata.append({"id": download_id, "url": youtube_url, "status": "In Progress", "downloaded_bytes": 0})
+        downloads_metadata.append(
+            {"id": download_id, "url": youtube_url, "status": "In Progress", "downloaded_bytes": 0})
         # Store status file path for later use
         downloads_metadata[download_id]['status_file'] = status_file
         download_services[download_id] = {"process": process}
         save_downloads_metadata()
         return redirect(url_for('index'))  # Redirect after handling POST
     return render_template('index.html', downloads_metadata=downloads_metadata)
+
 
 @app.route('/get_status', methods=['GET'])
 def get_status():
@@ -82,6 +89,7 @@ def delete_download(download_id):
         save_downloads_metadata()
 
     return redirect(url_for('index'))
+
 
 if __name__ == '__main__':
     downloads_metadata = load_downloads_metadata()
