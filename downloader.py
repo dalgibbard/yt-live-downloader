@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 import yt_dlp
 import json
@@ -21,9 +22,12 @@ def download_video(url, download_path, status_file):
             with open(status_file, 'w') as f:
                 json.dump(status, f)
 
+    # Create the download directory if it doesn't exist
+    if not os.path.exists(download_path):
+        os.makedirs(download_path)
+
     ydl_opts = {
         'progress_hooks': [progress_hook],
-        'outtmpl': download_path,
         'live_from_start': True,
         'wait_for_video': True,
     }
@@ -36,14 +40,20 @@ def download_video(url, download_path, status_file):
         for fmt in formats:
             print(fmt['format_id'], fmt['ext'])
 
+        title = yt_dlp.utils.sanitize_filename(info.get('title', 'video'))
+        output_file = f"{title}.mp4"
+        print("Output file:", output_file)
+
         # Choose the best available format
         best_format = formats[0]['format_id']
         print("Selected format:", best_format)
 
         # Download the video
         ydl_opts['format'] = best_format
-        ydl.download([url])
+        ydl_opts['outtmpl'] = output_file
 
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
     # Update status to Finished after download is complete
     with open(status_file, 'w') as f:
         json.dump({"status": "Finished", "downloaded_bytes": 0}, f)
