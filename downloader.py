@@ -21,7 +21,7 @@ def download_video(url, download_path, status_file):
             }
             with open(status_file, 'w') as f:
                 json.dump(status, f)
-                
+
     ydl_opts = {
         'progress_hooks': [progress_hook],
         'outtmpl': download_path,
@@ -49,8 +49,19 @@ def download_video(url, download_path, status_file):
     with open(status_file, 'w') as f:
         json.dump({"status": "Finished", "downloaded_bytes": 0}, f)
 
+def get_video_title(url):
+    with yt_dlp.YoutubeDL() as ydl:
+        try:
+            info_dict = ydl.extract_info(url, download=False)
+            video_title = info_dict.get('title', 'video')
+            return video_title
+        except Exception as e:
+            print(f"Error retrieving video title: {e}")
+            return None
+
 if __name__ == "__main__":
     video_url = sys.argv[1]
     output_path = sys.argv[2]
     status_file = sys.argv[3]
     download_video(video_url, output_path, status_file)
+    print("Video Title:", get_video_title(video_url))
