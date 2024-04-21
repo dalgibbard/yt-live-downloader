@@ -23,7 +23,7 @@ def download_video(url, download_path, status_file):
 
     ydl_opts = {
         'progress_hooks': [progress_hook],
-        # 'outtmpl': download_path,
+        'outtmpl': download_path,
         'live_from_start': True,
         'wait_for_video': True,
     }
