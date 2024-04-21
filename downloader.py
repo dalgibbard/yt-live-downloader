@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 import yt_dlp
 import json
@@ -21,39 +22,46 @@ def download_video(url, download_path, status_file):
             with open(status_file, 'w') as f:
                 json.dump(status, f)
 
-    # Check if the video format is HSL
-    with yt_dlp.YoutubeDL() as ydl:
-        info = ydl.extract_info(url, download=False)
-        format = info.get('format', '').lower()
-
-    if 'hls' in format:
-        ydl_opts = {
-            'progress_hooks': [progress_hook],
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': download_path,
-            'live_from_start': True,
-            'wait_for_video': True,
-            'hls_prefer_mpegts': True  # Use MPEG-TS for HLS streams
-        }
-    else:
-        ydl_opts = {
-            'progress_hooks': [progress_hook],
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-            'outtmpl': download_path,
-            'live_from_start': True,
-            'wait_for_video': True,
-        }
+    ydl_opts = {
+        'progress_hooks': [progress_hook],
+        'outtmpl': download_path,
+        'live_from_start': True,
+        'wait_for_video': True,
+    }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        # Get the available formats
+        info = ydl.extract_info(url, download=False)
+        formats = info.get('formats', [])
+        print("Available formats:")
+        for fmt in formats:
+            print(fmt['format_id'], fmt['ext'])
+
+        # Choose the best available format
+        best_format = formats[0]['format_id']
+        print("Selected format:", best_format)
+
+        # Download the video
+        ydl_opts['format'] = best_format
         ydl.download([url])
 
     # Update status to Finished after download is complete
     with open(status_file, 'w') as f:
         json.dump({"status": "Finished", "downloaded_bytes": 0}, f)
 
+def get_video_title(url):
+    with yt_dlp.YoutubeDL() as ydl:
+        try:
+            info_dict = ydl.extract_info(url, download=False)
+            video_title = info_dict.get('title', 'video')
+            return video_title
+        except Exception as e:
+            print(f"Error retrieving video title: {e}")
+            return None
 
 if __name__ == "__main__":
     video_url = sys.argv[1]
     output_path = sys.argv[2]
     status_file = sys.argv[3]
     download_video(video_url, output_path, status_file)
+    print("Video Title:", get_video_title(video_url))
