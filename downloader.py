@@ -21,13 +21,28 @@ def download_video(url, download_path, status_file):
             with open(status_file, 'w') as f:
                 json.dump(status, f)
 
-    ydl_opts = {
-        'progress_hooks': [progress_hook],
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
-        'outtmpl': download_path,
-        'live_from_start': True,
-        'wait_for_video': True,
-    }
+    # Check if the video format is HSL
+    with yt_dlp.YoutubeDL() as ydl:
+        info = ydl.extract_info(url, download=False)
+        format = info.get('format', '').lower()
+
+    if 'hls' in format:
+        ydl_opts = {
+            'progress_hooks': [progress_hook],
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': download_path,
+            'live_from_start': True,
+            'wait_for_video': True,
+            'hls_prefer_mpegts': True  # Use MPEG-TS for HLS streams
+        }
+    else:
+        ydl_opts = {
+            'progress_hooks': [progress_hook],
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+            'outtmpl': download_path,
+            'live_from_start': True,
+            'wait_for_video': True,
+        }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
