@@ -95,9 +95,9 @@
                     <td class="status">{{ download['status'] }}</td>
                     <td class="downloaded">{{ "%.2f"|format(download['downloaded_bytes'] / 1024 / 1024) }}</td>
                     <td>
-                        <form method="POST" action="/delete_download/{{ download['id'] }}" style="display: inline;">
+                        <form method="POST" action="{{ url_for('delete_download', sanitized_title=download['id']) }}" style="display: inline;">
+                            <input type="hidden" name="delete_files" value="true">
                             <input type="submit" class="delete-button" value="Delete">
-                            <input type="checkbox" name="delete_files"> Delete Files
                         </form>
                     </td>
                 </tr>

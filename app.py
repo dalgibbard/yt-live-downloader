@@ -15,7 +15,7 @@ if username and password:
     app.config['BASIC_AUTH_PASSWORD'] = password
     basic_auth = BasicAuth(app)
     app.config['BASIC_AUTH_FORCE'] = True
-    
+
 DOWNLOAD_FOLDER = 'downloads'
 METADATA_FILE = 'downloads_metadata.json'
 app.config['DOWNLOAD_FOLDER'] = DOWNLOAD_FOLDER
@@ -52,6 +52,7 @@ def index():
 
         process = subprocess.Popen(command, shell=True)
         downloads_metadata.append({
+            "id": sanitized_title,
             "title": video_title,
             "url": youtube_url,
             "status": "In Progress",
