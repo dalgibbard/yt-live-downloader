@@ -1,137 +1,237 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>YouTube Live Video Downloader</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #222;
-            margin: 0;
-            padding: 0;
-            text-align: center;
-            color: #fff;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 20px auto;
-            padding: 20px;
-            background-color: #333;
-            border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
-        }
-
-        h1 {
-            color: #007bff;
-        }
-
-        form {
-            margin-top: 20px;
-        }
-
-        label {
-            font-weight: bold;
-        }
-
-        input[type="text"],
-        input[type="submit"] {
-            width: 90%;
-            padding: 10px;
-            margin: 10px 0;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-        }
-
-        input[type="submit"] {
-            background-color: #007bff;
-            color: #fff;
-            border: none;
-            cursor: pointer;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th,
-        td {
-            border: 1px solid #ddd;
-            padding: 8px;
-            text-align: left;
-        }
-
-        th {
-            background-color: #007bff;
-            color: white;
-        }
-    </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f7fb" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#111827" media="(prefers-color-scheme: dark)">
+    <title>YouTube Live Recorder</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+    <script defer src="{{ url_for('static', filename='app.js') }}"></script>
 </head>
-
 <body>
-    <div class="container">
-        <h1>YouTube Live Video Downloader</h1>
-        <form method="POST">
-            <label for="youtube_url">YouTube Live Video URL:</label>
-            <br>
-            <input type="text" name="youtube_url" required>
-            <br>
-            <input type="submit" value="Download">
-        </form>
-        <div class="downloads">
-            <table>
-                <tr>
-                    <th>URL</th>
-                    <th>Status</th>
-                    <th>Downloaded (MB)</th>
-                    <th>Actions</th>
-                </tr>
-                {% for download in downloads_metadata %}
-                <tr id="download-{{ download['id'] }}">
-                    <td>{{ download['url'] }}</td>
-                    <td class="status">{{ download['status'] }}</td>
-                    <td class="downloaded">{{ "%.2f"|format(download['downloaded_bytes'] / 1024 / 1024) }}</td>
-                    <td>
-                        <form method="POST" action="{{ url_for('delete_download', sanitized_title=download['id']) }}" style="display: inline;">
-                            <input type="hidden" name="delete_files" value="true">
-                            <input type="submit" class="delete-button" value="Delete">
-                        </form>
-                    </td>
-                </tr>
-                {% endfor %}
-            </table>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+
+    <header class="app-header">
+        <div class="header-inner">
+            <a class="brand" href="/" aria-label="YouTube Live Recorder home">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                        <path d="M21.6 7.2a3 3 0 0 0-2.1-2.1C17.6 4.6 12 4.6 12 4.6s-5.6 0-7.5.5a3 3 0 0 0-2.1 2.1C2 9.1 2 12 2 12s0 2.9.4 4.8a3 3 0 0 0 2.1 2.1c1.9.5 7.5.5 7.5.5s5.6 0 7.5-.5a3 3 0 0 0 2.1-2.1C22 14.9 22 12 22 12s0-2.9-.4-4.8Z"/>
+                        <path class="brand-play" d="m10 15.5 5-3.5-5-3.5v7Z"/>
+                    </svg>
+                </span>
+                <span>
+                    <span class="brand-name">Live Recorder</span>
+                    <span class="brand-subtitle">Capture streams from the beginning</span>
+                </span>
+            </a>
+
+            <div class="service-status" id="service-status" role="status" aria-live="polite">
+                <span class="service-dot" aria-hidden="true"></span>
+                <span id="service-status-text">Connecting</span>
+            </div>
         </div>
-    </div>
-    <footer>
-        <p>Created with ChatGPT</p>
+    </header>
+
+    <main class="app-main" id="main-content">
+        <section class="capture-card" aria-labelledby="capture-heading">
+            <div class="capture-copy">
+                <p class="eyebrow">New capture</p>
+                <h1 id="capture-heading">Save a YouTube livestream</h1>
+                <p>Paste a live, scheduled, or regular YouTube video URL. Recording begins from the earliest available point.</p>
+            </div>
+
+            <form class="capture-form" id="capture-form" action="/api/downloads" method="post" novalidate>
+                <label for="youtube-url">YouTube URL</label>
+                <div class="capture-controls">
+                    <input
+                        id="youtube-url"
+                        name="url"
+                        type="url"
+                        inputmode="url"
+                        autocomplete="url"
+                        placeholder="https://www.youtube.com/watch?v=…"
+                        aria-describedby="url-hint capture-error"
+                        required
+                    >
+                    <button class="button button-primary capture-submit" type="submit">
+                        <span class="button-spinner" aria-hidden="true"></span>
+                        <span class="button-label">Start capture</span>
+                    </button>
+                </div>
+                <div class="form-support">
+                    <p class="field-hint" id="url-hint">Scheduled streams can be added before they go live.</p>
+                    <p class="form-error" id="capture-error" role="alert" hidden></p>
+                </div>
+            </form>
+        </section>
+
+        <div class="connection-banner" id="connection-banner" role="status" hidden>
+            <span aria-hidden="true">●</span>
+            <span id="connection-message">Updates are temporarily unavailable.</span>
+            <button class="text-button" id="retry-connection" type="button">Retry now</button>
+        </div>
+
+        <section class="downloads-panel" aria-labelledby="downloads-heading">
+            <header class="section-header">
+                <div>
+                    <p class="eyebrow">Library</p>
+                    <div class="heading-line">
+                        <h2 id="downloads-heading">Downloads</h2>
+                        <span class="count-badge" id="download-count">0</span>
+                    </div>
+                </div>
+                <button class="button button-secondary refresh-button" id="refresh-downloads" type="button">
+                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                        <path d="M20 11a8 8 0 1 0-2.3 6.7M20 5v6h-6"/>
+                    </svg>
+                    Refresh
+                </button>
+            </header>
+
+            <div class="loading-state" id="loading-state" role="status">
+                <span class="loading-spinner" aria-hidden="true"></span>
+                Loading downloads…
+            </div>
+
+            <div class="empty-state" id="empty-state" hidden>
+                <span class="empty-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                        <path d="M4 7.5h16v11H4zM8 4.5h8M9.5 11l2.5 2 2.5-2"/>
+                    </svg>
+                </span>
+                <h3>No downloads yet</h3>
+                <p>Add a YouTube URL above and its capture status will appear here.</p>
+            </div>
+
+            <div class="table-frame" id="downloads-table-frame" hidden>
+                <table class="downloads-table">
+                    <caption class="sr-only">YouTube stream downloads and their current state</caption>
+                    <thead>
+                        <tr>
+                            <th scope="col">Stream</th>
+                            <th scope="col">Activity</th>
+                            <th scope="col">File</th>
+                            <th scope="col"><span class="sr-only">Actions</span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="downloads-body"></tbody>
+                </table>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p>Files stay on this recorder until you delete them.</p>
     </footer>
 
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script>
-        function updateStatus() {
-            $.ajax({
-                url: '/get_status',
-                method: 'GET',
-                dataType: 'json',
-                success: function (data) {
-                    data.forEach(function (download) {
-                        var downloadDiv = $('#download-' + download.id);
-                        downloadDiv.find('.status').text(download.status);
-                        downloadDiv.find('.downloaded').text((download.downloaded_bytes / 1024 / 1024).toFixed(2) + ' MB');
-                    });
-                }
-            });
-        }
+    <template id="download-row-template">
+        <tr class="download-row">
+            <td class="stream-column" data-label="Stream">
+                <div class="stream-cell">
+                    <div class="thumbnail-shell">
+                        <img class="stream-thumbnail" alt="" width="160" height="90" loading="lazy" decoding="async">
+                        <span class="thumbnail-placeholder" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" focusable="false">
+                                <path d="M4 6.5h16v11H4zM10 9l5 3-5 3z"/>
+                            </svg>
+                        </span>
+                    </div>
+                    <div class="stream-copy">
+                        <h3 class="stream-title"></h3>
+                        <p class="source-title" hidden></p>
+                        <a class="source-link" target="_blank" rel="noopener noreferrer">View on YouTube</a>
+                        <time class="created-time"></time>
+                    </div>
+                </div>
+            </td>
+            <td class="activity-column" data-label="Activity">
+                <div class="status-line">
+                    <span class="status-badge">
+                        <span class="status-indicator" aria-hidden="true"></span>
+                        <span class="status-text"></span>
+                    </span>
+                    <span class="phase-label"></span>
+                </div>
+                <p class="status-detail"></p>
+                <div class="progress-block" hidden>
+                    <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+                        <span class="progress-fill"></span>
+                    </div>
+                    <div class="progress-copy">
+                        <span class="progress-summary"></span>
+                        <span class="progress-metrics"></span>
+                    </div>
+                    <ul class="progress-parts"></ul>
+                </div>
+                <details class="error-card" hidden>
+                    <summary class="error-summary"></summary>
+                    <p class="error-detail"></p>
+                </details>
+            </td>
+            <td class="file-column" data-label="File">
+                <span class="file-state"></span>
+                <span class="file-name"></span>
+                <span class="file-size"></span>
+            </td>
+            <td class="actions-column" data-label="Actions">
+                <div class="row-actions">
+                    <a class="button button-small button-secondary action-download" data-action="download">Download</a>
+                    <button class="button button-small button-secondary" data-action="rename" type="button">Rename</button>
+                    <button class="button button-small button-secondary action-cancel" data-action="cancel" type="button">Cancel</button>
+                    <button class="button button-small button-secondary action-retry" data-action="retry" type="button">Retry</button>
+                    <button class="button button-small button-danger-subtle action-delete-file" data-action="delete-file" type="button">Delete file</button>
+                    <button class="button button-small button-quiet action-remove-history" data-action="remove-history" type="button">Remove history</button>
+                </div>
+            </td>
+        </tr>
+    </template>
 
-        setInterval(updateStatus, 3000);
+    <dialog class="app-dialog" id="rename-dialog" aria-labelledby="rename-heading" aria-describedby="rename-description">
+        <form id="rename-form">
+            <div class="dialog-header">
+                <div>
+                    <p class="eyebrow">Edit download</p>
+                    <h2 id="rename-heading">Rename download</h2>
+                </div>
+                <button class="dialog-close" type="button" data-close-dialog aria-label="Close rename dialog">×</button>
+            </div>
+            <p id="rename-description">The display title changes now. Once complete, the file on disk will use this title too.</p>
+            <label for="rename-title">Download title</label>
+            <input id="rename-title" name="title" type="text" maxlength="180" required aria-describedby="rename-hint rename-error">
+            <p class="field-hint" id="rename-hint">Unsupported filename characters may be adjusted by the recorder.</p>
+            <p class="form-error" id="rename-error" role="alert" hidden></p>
+            <div class="dialog-actions">
+                <button class="button button-secondary" type="button" data-close-dialog>Cancel</button>
+                <button class="button button-primary dialog-submit" type="submit">Save title</button>
+            </div>
+        </form>
+    </dialog>
 
-        $(document).ready(function () {
-            updateStatus();
-        });
-    </script>
+    <dialog class="app-dialog confirmation-dialog" id="confirmation-dialog" aria-labelledby="confirmation-heading" aria-describedby="confirmation-description">
+        <form id="confirmation-form">
+            <div class="dialog-header">
+                <div>
+                    <p class="eyebrow" id="confirmation-eyebrow">Please confirm</p>
+                    <h2 id="confirmation-heading">Confirm action</h2>
+                </div>
+                <button class="dialog-close" type="button" data-close-dialog aria-label="Close confirmation dialog">×</button>
+            </div>
+            <p id="confirmation-description"></p>
+            <p class="confirmation-target" id="confirmation-target"></p>
+            <p class="form-error" id="confirmation-error" role="alert" hidden></p>
+            <div class="dialog-actions">
+                <button class="button button-secondary" type="button" data-close-dialog>Keep it</button>
+                <button class="button button-danger dialog-submit" id="confirmation-submit" type="submit">Confirm</button>
+            </div>
+        </form>
+    </dialog>
+
+    <div class="toast-region" id="toast-region" aria-live="polite" aria-relevant="additions"></div>
+
+    <noscript>
+        <div class="noscript-message">JavaScript is required to start downloads and receive live progress updates.</div>
+    </noscript>
 </body>
-
 </html>
