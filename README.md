@@ -1,5 +1,7 @@
 # YouTube Live Downloader
 
+![app image](image.png)
+
 A small self-hosted web application for recording YouTube livestreams from the
 earliest point YouTube still makes available. Scheduled streams can be queued
 before they begin, and regular YouTube videos are supported too.
