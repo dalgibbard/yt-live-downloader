@@ -996,6 +996,60 @@ input[aria-invalid="true"] {
     padding: 25px;
 }
 
+.playback-dialog {
+    width: min(100% - 32px, 920px);
+    max-height: 92vh;
+}
+
+.playback-dialog-content {
+    padding: 22px;
+}
+
+.video-frame {
+    margin-top: 18px;
+    overflow: hidden;
+    border-radius: var(--radius-md);
+    background: #000;
+    aspect-ratio: 16 / 9;
+}
+
+.video-frame video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.playback-error {
+    margin: 13px 0 0;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--warning-soft);
+    color: var(--warning);
+    font-size: 0.82rem;
+}
+
+.playback-footer {
+    display: flex;
+    margin-top: 14px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.playback-file-name {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 0.78rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.playback-footer .button {
+    flex: 0 0 auto;
+}
+
 .dialog-header {
     display: flex;
     align-items: flex-start;
@@ -1382,6 +1436,19 @@ input[aria-invalid="true"] {
     }
 
     .dialog-actions .button {
+        width: 100%;
+    }
+
+    .playback-dialog-content {
+        padding: 16px;
+    }
+
+    .playback-footer {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .playback-footer .button {
         width: 100%;
     }
 

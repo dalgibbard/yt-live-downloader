@@ -133,6 +133,68 @@ def test_external_file_removal_is_reported_as_missing(app_bundle):
     assert payload["file"]["state"] == "missing"
 
 
+def test_available_file_can_be_streamed_for_browser_playback(app_bundle):
+    _app, client, store, manager, root = app_bundle
+    job = manager.submit("https://youtu.be/abc123")
+    media = root / "Playable [abc123].mp4"
+    media.write_bytes(b"video-content")
+    store.update(
+        job["id"],
+        title="Playable",
+        state="completed",
+        phase="completed",
+        file_path=media.name,
+        file_size=media.stat().st_size,
+    )
+
+    payload = client.get(f"/api/downloads/{job['id']}").get_json()["download"]
+    assert payload["file"]["playback_url"] == f"/api/downloads/{job['id']}/play"
+
+    response = client.get(
+        payload["file"]["playback_url"], headers={"Range": "bytes=2-6"}
+    )
+    assert response.status_code == 206
+    assert response.data == b"deo-c"
+    assert response.content_type == "video/mp4"
+    assert response.headers["Content-Range"] == "bytes 2-6/13"
+    assert response.headers["Content-Disposition"].startswith("inline;")
+
+
+def test_missing_file_cannot_be_played(app_bundle):
+    _app, client, store, manager, _root = app_bundle
+    job = manager.submit("https://youtu.be/abc123")
+    store.update(
+        job["id"],
+        state="completed",
+        phase="completed",
+        file_path="missing.mp4",
+        file_size=100,
+    )
+
+    payload = client.get(f"/api/downloads/{job['id']}").get_json()["download"]
+    assert payload["file"]["playback_url"] is None
+    assert client.get(f"/api/downloads/{job['id']}/play").status_code == 404
+
+
+def test_non_video_file_is_not_exposed_for_inline_playback(app_bundle):
+    _app, client, store, manager, root = app_bundle
+    job = manager.submit("https://youtu.be/abc123")
+    artifact = root / "Unexpected.html"
+    artifact.write_text("<h1>not video</h1>", encoding="utf-8")
+    store.update(
+        job["id"],
+        state="completed",
+        phase="completed",
+        file_path=artifact.name,
+        file_size=artifact.stat().st_size,
+    )
+
+    payload = client.get(f"/api/downloads/{job['id']}").get_json()["download"]
+    assert payload["file"]["download_url"] == f"/api/downloads/{job['id']}/file"
+    assert payload["file"]["playback_url"] is None
+    assert client.get(f"/api/downloads/{job['id']}/play").status_code == 415
+
+
 def test_remove_history_never_deletes_media(app_bundle):
     _app, client, store, manager, root = app_bundle
     job = manager.submit("https://youtu.be/abc123")
