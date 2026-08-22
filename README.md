@@ -108,6 +108,69 @@ Create and `chown` the `downloads` directory as shown in the Compose quick start
 before running this command. Add `USERNAME` and either `PASSWORD` or a mounted
 `PASSWORD_FILE` when authentication is required.
 
+## Automated Docker Hub publishing
+
+The GitHub Actions workflow in `.github/workflows/publish-image.yml` runs the
+tests and Ruff checks on every push to `main`. If they pass, Release Please
+creates or updates a release pull request, and the workflow builds the Docker
+image and pushes these tags to Docker Hub:
+
+- `latest`;
+- a UTC date plus the short Git commit, such as `20260822-a1b2c3d`, so multiple
+  pushes on the same day do not overwrite one another;
+- the semantic version, such as `1.2.0`, when that push creates a GitHub Release.
+
+Create the target repository on Docker Hub, then configure the following under
+the GitHub repository's **Settings > Secrets and variables > Actions** page:
+
+| Type | Name | Value |
+| --- | --- | --- |
+| Variable | `DOCKERHUB_USERNAME` | The Docker Hub user that owns the access token. |
+| Variable | `DOCKERHUB_IMAGE` | The complete image name, for example `dalgibbard/yt-live-downloader`. |
+| Secret | `DOCKERHUB_TOKEN` | A Docker Hub personal access token with Read & Write access. |
+
+To create the token, open Docker Hub, go to **Account settings > Personal access
+tokens**, generate a token with an expiry and **Read & Write** access, and copy it
+when shown. Store the token as the GitHub secret; do not add it to this repository
+or put it directly in the workflow.
+
+The same configuration can be added with the GitHub CLI. The secret command
+prompts for the token without placing it in the command itself:
+
+```bash
+gh variable set DOCKERHUB_USERNAME --body "your-dockerhub-username"
+gh variable set DOCKERHUB_IMAGE --body "your-dockerhub-username/yt-live-downloader"
+gh secret set DOCKERHUB_TOKEN
+```
+
+### Release process and notifications
+
+Release Please collects commits that follow the Conventional Commits format and
+maintains a release pull request containing the next version and `CHANGELOG.md`.
+Use `fix:` for a patch, `feat:` for a minor release, and a `!` or a
+`BREAKING CHANGE:` footer for a major release. For example:
+
+```text
+fix: handle YouTube CDN 403 responses
+feat: support Docker Hub publishing
+feat!: change the persisted download schema
+```
+
+The first proposed release is configured as `1.0.0`. Merging a Release Please
+pull request causes the next successful `main` workflow to create the version
+tag and published GitHub Release, then add the same semantic version to the
+Docker image. Release Please uses GitHub's built-in `GITHUB_TOKEN`; no additional
+GitHub API token needs to be stored.
+
+In the GitHub repository's **Settings > Actions > General** page, enable **Allow
+GitHub Actions to create and approve pull requests**. The workflow grants write
+access only to the Release Please job; if an organisation policy blocks those
+job-level permissions, an organisation administrator must allow them.
+
+Users can receive release notifications by selecting **Watch > Custom >
+Releases** on the GitHub repository page. The generated changelog is included in
+each GitHub Release.
+
 ## Local Python development
 
 Python 3.13 is recommended. Install `ffmpeg` with the operating system package
