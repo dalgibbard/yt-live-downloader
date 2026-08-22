@@ -4,17 +4,27 @@ on:
   push:
     branches:
       - main
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - converted_to_draft
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-docker-main
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
     name: Test and lint
+    if: ${{ github.event_name == 'push' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
 
     steps:
@@ -45,6 +55,7 @@ jobs:
   release:
     name: Update release
     needs: test
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -64,6 +75,7 @@ jobs:
     needs:
       - test
       - release
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
 
     steps:

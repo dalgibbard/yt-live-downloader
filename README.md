@@ -120,6 +120,11 @@ image and pushes these tags to Docker Hub:
   pushes on the same day do not overwrite one another;
 - the semantic version, such as `1.2.0`, when that push creates a GitHub Release.
 
+The same test and Ruff checks run when a pull request targeting `main` is opened
+as non-draft or marked ready for review. They rerun after subsequent commits or
+when the pull request is reopened. Draft pull requests skip the checks, and pull
+request workflows never create releases or publish images.
+
 Create the target repository on Docker Hub, then configure the following under
 the GitHub repository's **Settings > Secrets and variables > Actions** page:
 
