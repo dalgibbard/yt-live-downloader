@@ -91,6 +91,7 @@ jobs:
             type=raw,value={{date 'YYYYMMDD' tz='UTC'}}-{{sha}}
             type=raw,value=latest
             type=raw,value=${{ needs.release.outputs.version }},enable=${{ needs.release.outputs.release_created == 'true' }}
+            type=raw,value=v${{ needs.release.outputs.version }},enable=${{ needs.release.outputs.release_created == 'true' }}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v4
