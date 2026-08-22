@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.0](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.1.0...yt-live-downloader-v1.2.0) (2026-08-22)
+
+
+### Features
+
+* add browser playback for downloaded videos ([#9](https://github.com/dalgibbard/yt-live-downloader/issues/9)) ([1f31a6d](https://github.com/dalgibbard/yt-live-downloader/commit/1f31a6df593c5466ae3804046d46db8be6fd3bc7))
+
 ## [1.1.0](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.0.0...yt-live-downloader-v1.1.0) (2026-08-22)
 
 
