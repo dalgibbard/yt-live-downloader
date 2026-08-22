@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.0.0...yt-live-downloader-v1.1.0) (2026-08-22)
+
+
+### Features
+
+* **ci:** publish v-prefixed release image tags ([#6](https://github.com/dalgibbard/yt-live-downloader/issues/6)) ([96635bf](https://github.com/dalgibbard/yt-live-downloader/commit/96635bff6409f7ed3ebc3fd837a8dc719d89d25c))
+
 ## 1.0.0 (2026-08-22)
 
 
