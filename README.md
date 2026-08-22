@@ -118,7 +118,8 @@ image and pushes these tags to Docker Hub:
 - `latest`;
 - a UTC date plus the short Git commit, such as `20260822-a1b2c3d`, so multiple
   pushes on the same day do not overwrite one another;
-- the semantic version, such as `1.2.0`, when that push creates a GitHub Release.
+- the semantic version with and without a `v` prefix, such as `1.2.0` and
+  `v1.2.0`, when that push creates a GitHub Release.
 
 The same test and Ruff checks run when a pull request targeting `main` is opened
 as non-draft or marked ready for review. They rerun after subsequent commits or
@@ -163,9 +164,9 @@ feat!: change the persisted download schema
 
 The first proposed release is configured as `1.0.0`. Merging a Release Please
 pull request causes the next successful `main` workflow to create the version
-tag and published GitHub Release, then add the same semantic version to the
-Docker image. Release Please uses GitHub's built-in `GITHUB_TOKEN`; no additional
-GitHub API token needs to be stored.
+tag and published GitHub Release, then add both the unprefixed and `v`-prefixed
+semantic versions to the Docker image. Release Please uses GitHub's built-in
+`GITHUB_TOKEN`; no additional GitHub API token needs to be stored.
 
 In the GitHub repository's **Settings > Actions > General** page, enable **Allow
 GitHub Actions to create and approve pull requests**. The workflow grants write
