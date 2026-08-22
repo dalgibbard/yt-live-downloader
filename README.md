@@ -21,7 +21,8 @@ disk.
 - Show download failures and allow failed, cancelled, or interrupted jobs to be
   retried.
 - Rename a download; completed files are renamed safely on disk as well.
-- Download or delete a media file independently of its history entry.
+- Play completed videos in the browser, or download or delete a media file
+  independently of its history entry.
 - Detect files removed outside the application and report them as missing.
 - Optionally protect the UI and API with HTTP Basic authentication.
 

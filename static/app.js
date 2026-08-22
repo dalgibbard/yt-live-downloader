@@ -68,6 +68,12 @@
         downloadsBody: document.querySelector("#downloads-body"),
         downloadCount: document.querySelector("#download-count"),
         rowTemplate: document.querySelector("#download-row-template"),
+        playbackDialog: document.querySelector("#playback-dialog"),
+        playbackHeading: document.querySelector("#playback-heading"),
+        playbackVideo: document.querySelector("#playback-video"),
+        playbackError: document.querySelector("#playback-error"),
+        playbackFileName: document.querySelector("#playback-file-name"),
+        playbackDownload: document.querySelector("#playback-download"),
         renameDialog: document.querySelector("#rename-dialog"),
         renameForm: document.querySelector("#rename-form"),
         renameInput: document.querySelector("#rename-title"),
@@ -95,6 +101,7 @@
     let pollFailures = 0;
     let hasLoaded = false;
     let mutationVersion = 0;
+    let playbackContext = null;
     let renameContext = null;
     let confirmationContext = null;
 
@@ -238,6 +245,7 @@
                 state: KNOWN_FILE_STATES.has(fileState) ? fileState : "unknown",
                 name: asText(file.name),
                 download_url: asText(file.download_url),
+                playback_url: asText(file.playback_url),
             },
         };
     }
@@ -650,6 +658,7 @@
         const title = displayTitle(job);
         const isActive = ACTIVE_STATES.has(job.state);
         const isBusy = busyJobs.has(job.id);
+        const play = row.querySelector(".action-play");
         const download = row.querySelector(".action-download");
         const rename = row.querySelector('[data-action="rename"]');
         const cancel = row.querySelector(".action-cancel");
@@ -657,11 +666,14 @@
         const deleteFile = row.querySelector(".action-delete-file");
         const removeHistory = row.querySelector(".action-remove-history");
         const canDownload = job.file.state === "available";
+        const canPlay = canDownload && Boolean(safeUrl(job.file.playback_url));
         const canRetry = RETRYABLE_STATES.has(job.state);
         const canDeleteFile = !isActive && job.file.state === "available";
 
         row.setAttribute("aria-busy", String(isBusy));
 
+        play.hidden = !canPlay;
+        play.disabled = isBusy;
         download.hidden = !canDownload;
         if (canDownload) {
             const downloadUrl = safeUrl(job.file.download_url) || jobEndpoint(job.id, "/file");
@@ -686,6 +698,7 @@
             download.tabIndex = isBusy ? -1 : 0;
         }
 
+        setActionLabel(play, "Play", title);
         setActionLabel(rename, "Rename", title);
         setActionLabel(cancel, "Cancel capture for", title);
         setActionLabel(retry, "Retry", title);
@@ -950,6 +963,39 @@
         form.setAttribute("aria-busy", String(isBusy));
     }
 
+    function openPlaybackDialog(job, trigger) {
+        const playbackUrl = safeUrl(job.file.playback_url);
+        if (!playbackUrl) {
+            return;
+        }
+        const downloadUrl = safeUrl(job.file.download_url) || jobEndpoint(job.id, "/file");
+        playbackContext = { id: job.id, trigger };
+        elements.playbackHeading.textContent = displayTitle(job);
+        elements.playbackFileName.textContent = job.file.name;
+        elements.playbackFileName.title = job.file.name;
+        elements.playbackError.hidden = true;
+        elements.playbackDownload.href = downloadUrl;
+        const posterUrl = safeUrl(job.thumbnail_url);
+        if (posterUrl) {
+            elements.playbackVideo.poster = posterUrl;
+        } else {
+            elements.playbackVideo.removeAttribute("poster");
+        }
+        elements.playbackVideo.src = playbackUrl;
+        showDialog(elements.playbackDialog);
+        elements.playbackVideo.load();
+        void elements.playbackVideo.play().catch(() => {});
+    }
+
+    function resetPlayback() {
+        elements.playbackVideo.pause();
+        elements.playbackVideo.removeAttribute("src");
+        elements.playbackVideo.removeAttribute("poster");
+        elements.playbackVideo.load();
+        elements.playbackDownload.removeAttribute("href");
+        elements.playbackError.hidden = true;
+    }
+
     function openRenameDialog(job, trigger) {
         renameContext = { id: job.id, trigger };
         elements.renameInput.value = displayTitle(job);
@@ -1200,7 +1246,9 @@
             return;
         }
 
-        if (action === "rename") {
+        if (action === "play") {
+            openPlaybackDialog(job, control);
+        } else if (action === "rename") {
             openRenameDialog(job, control);
         } else if (action === "retry") {
             void retryJob(job);
@@ -1247,6 +1295,11 @@
     elements.downloadsBody.addEventListener("click", handleRowAction);
     elements.renameForm.addEventListener("submit", submitRename);
     elements.confirmationForm.addEventListener("submit", submitConfirmation);
+    elements.playbackVideo.addEventListener("error", () => {
+        if (playbackContext) {
+            elements.playbackError.hidden = false;
+        }
+    });
 
     for (const closeButton of document.querySelectorAll("[data-close-dialog]")) {
         closeButton.addEventListener("click", () => {
@@ -1262,6 +1315,15 @@
         elements.renameInput.removeAttribute("aria-invalid");
         const trigger = renameContext && renameContext.trigger;
         renameContext = null;
+        if (trigger && trigger.isConnected) {
+            trigger.focus();
+        }
+    });
+
+    elements.playbackDialog.addEventListener("close", () => {
+        const trigger = playbackContext && playbackContext.trigger;
+        playbackContext = null;
+        resetPlayback();
         if (trigger && trigger.isConnected) {
             trigger.focus();
         }

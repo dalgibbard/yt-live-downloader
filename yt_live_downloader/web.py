@@ -22,6 +22,15 @@ from .storage import ACTIVE_STATES, DownloadStore, JobNotFound, utc_now
 LOGGER = logging.getLogger(__name__)
 MAX_URL_LENGTH = 2_048
 MAX_TITLE_LENGTH = 180
+PLAYBACK_MIMETYPES = {
+    ".m4v": "video/mp4",
+    ".mkv": "video/x-matroska",
+    ".mov": "video/quicktime",
+    ".mp4": "video/mp4",
+    ".ogg": "video/ogg",
+    ".ogv": "video/ogg",
+    ".webm": "video/webm",
+}
 YOUTUBE_HOSTS = frozenset(
     {
         "youtube.com",
@@ -246,6 +255,32 @@ def create_app(
             path, as_attachment=True, download_name=path.name, conditional=True
         )
 
+    @app.get("/api/downloads/<uuid:job_id>/play")
+    def play_download(job_id: Any) -> Response | tuple[Response, int]:
+        try:
+            job = store.get(str(job_id))
+            path = _available_file(download_root, job)
+        except JobNotFound:
+            return _api_error("not_found", "Download not found", 404)
+        except ValueError:
+            return _api_error("unsafe_path", "The stored media path is invalid", 409)
+        if path is None:
+            return _api_error("file_missing", "The media file is not available", 404)
+        mimetype = _playback_mimetype(path)
+        if mimetype is None:
+            return _api_error(
+                "unsupported_media_type",
+                "This file type cannot be played in the browser",
+                415,
+            )
+        return send_file(
+            path,
+            as_attachment=False,
+            download_name=path.name,
+            mimetype=mimetype,
+            conditional=True,
+        )
+
     if app.config["START_DOWNLOAD_MANAGER"]:
         manager.start()
         atexit.register(manager.stop)
@@ -360,6 +395,10 @@ def _available_file(download_root: Path, job: dict[str, Any]) -> Path | None:
     return path if path is not None and path.is_file() else None
 
 
+def _playback_mimetype(path: Path) -> str | None:
+    return PLAYBACK_MIMETYPES.get(path.suffix.lower())
+
+
 def _serialize_job(job: dict[str, Any], download_root: Path) -> dict[str, Any]:
     relative_path = job.get("file_path")
     file_name = Path(relative_path).name if relative_path else None
@@ -422,6 +461,13 @@ def _serialize_job(job: dict[str, Any], download_root: Path) -> dict[str, Any]:
             "download_url": (
                 url_for("download_file", job_id=job["id"])
                 if file_state == "available"
+                else None
+            ),
+            "playback_url": (
+                url_for("play_download", job_id=job["id"])
+                if file_state == "available"
+                and file_name
+                and _playback_mimetype(Path(file_name))
                 else None
             ),
         },

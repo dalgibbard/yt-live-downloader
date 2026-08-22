@@ -177,6 +177,7 @@
             </td>
             <td class="actions-column" data-label="Actions">
                 <div class="row-actions">
+                    <button class="button button-small button-primary action-play" data-action="play" type="button">Play</button>
                     <a class="button button-small button-secondary action-download" data-action="download">Download</a>
                     <button class="button button-small button-secondary" data-action="rename" type="button">Rename</button>
                     <button class="button button-small button-secondary action-cancel" data-action="cancel" type="button">Cancel</button>
@@ -187,6 +188,28 @@
             </td>
         </tr>
     </template>
+
+    <dialog class="app-dialog playback-dialog" id="playback-dialog" aria-labelledby="playback-heading">
+        <div class="playback-dialog-content">
+            <div class="dialog-header">
+                <div>
+                    <p class="eyebrow">Now playing</p>
+                    <h2 id="playback-heading">Downloaded video</h2>
+                </div>
+                <button class="dialog-close" type="button" data-close-dialog aria-label="Close video player">×</button>
+            </div>
+            <div class="video-frame">
+                <video id="playback-video" controls playsinline preload="metadata"></video>
+            </div>
+            <p class="playback-error" id="playback-error" role="status" hidden>
+                This browser could not play the video. You can still download the file.
+            </p>
+            <div class="playback-footer">
+                <span class="playback-file-name" id="playback-file-name"></span>
+                <a class="button button-small button-secondary" id="playback-download" download>Download file</a>
+            </div>
+        </div>
+    </dialog>
 
     <dialog class="app-dialog" id="rename-dialog" aria-labelledby="rename-heading" aria-describedby="rename-description">
         <form id="rename-form">
