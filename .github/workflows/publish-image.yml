@@ -52,6 +52,12 @@ jobs:
       - name: Check Ruff formatting
         run: ruff format --check .
 
+      - name: Sanity check container requirements variant
+        run: |
+          python -m venv .docker-venv
+          .docker-venv/bin/pip install --quiet -r requirements-docker.txt
+          .docker-venv/bin/python -c "import yt_dlp, sys; print('yt-dlp', yt_dlp.version.__version__, 'on', sys.version.split()[0])"
+
   release:
     name: Update release
     needs: test
@@ -111,3 +117,24 @@ jobs:
           labels: ${{ steps.metadata.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Report-only CVE scan of the image we just published. Informational: it
+      # never fails the build, it just records the OS/Python vulnerability
+      # surface of each published image in the job log.
+      - name: Scan published image for CVEs
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ vars.DOCKERHUB_IMAGE }}:latest
+          format: table
+          exit-code: "0"
+          severity: CRITICAL,HIGH,MEDIUM
+          ignore-unfixed: false
+          scanners: vuln
+        continue-on-error: true
+
+      - name: Scan published Python dependencies for CVEs
+        run: |
+          python -m venv .audit-venv
+          .audit-venv/bin/pip install --quiet pip-audit
+          .audit-venv/bin/pip-audit -r requirements-docker.txt -r requirements-dev.txt --progress-spinner off
+        continue-on-error: true
