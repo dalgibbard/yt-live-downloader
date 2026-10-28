@@ -152,7 +152,7 @@ def create_app(
             requested_title = (
                 validate_title(payload["title"]) if "title" in payload else None
             )
-        except ValueError as error:
+        except (TypeError, ValueError) as error:
             return _api_error("invalid_request", str(error), 400)
 
         job = manager.submit(youtube_url)
@@ -181,7 +181,7 @@ def create_app(
             job = _rename_download(store, download_root, str(job_id), title)
         except JobNotFound:
             return _api_error("not_found", "Download not found", 404)
-        except (OSError, ValueError) as error:
+        except (OSError, TypeError, ValueError) as error:
             LOGGER.warning("Could not rename download %s: %s", job_id, error)
             return _api_error("rename_failed", str(error), 409)
         return jsonify({"download": _serialize_job(job, download_root)})
@@ -290,7 +290,7 @@ def create_app(
 
 def validate_youtube_url(raw_url: Any) -> str:
     if not isinstance(raw_url, str):
-        raise ValueError("Enter a YouTube URL")
+        raise TypeError("Enter a YouTube URL")
     url = raw_url.strip()
     if not url or len(url) > MAX_URL_LENGTH:
         raise ValueError("Enter a valid YouTube URL")
@@ -316,7 +316,7 @@ def validate_youtube_url(raw_url: Any) -> str:
 
 def validate_title(raw_title: Any) -> str:
     if not isinstance(raw_title, str):
-        raise ValueError("Title must be text")
+        raise TypeError("Title must be text")
     title = raw_title.strip()
     if not title:
         raise ValueError("Title cannot be empty")

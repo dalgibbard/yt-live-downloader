@@ -8,7 +8,6 @@ from yt_live_downloader.manager import DownloadManager
 from yt_live_downloader.storage import DownloadStore
 from yt_live_downloader.worker import ProgressReporter, _finalize, run_worker
 
-
 VIDEO_FORMAT = {
     "format_id": "137",
     "vcodec": "avc1",

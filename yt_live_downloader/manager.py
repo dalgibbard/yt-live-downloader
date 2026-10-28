@@ -252,7 +252,10 @@ class DownloadManager:
         environment = os.environ.copy()
         environment.setdefault("NO_COLOR", "1")
         try:
-            process = subprocess.Popen(
+            # argv list is internal only: sys.executable, the pinned worker script,
+            # the configured download root, a UUID job id and an int attempt - no
+            # shell, no user-supplied command.
+            process = subprocess.Popen(  # noqa: S603
                 command,
                 cwd=str(self.worker_script.parent),
                 env=environment,

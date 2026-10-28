@@ -5,9 +5,10 @@ import logging
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
@@ -19,9 +20,7 @@ ALL_STATES = ACTIVE_STATES | TERMINAL_STATES
 
 
 def utc_now() -> str:
-    return (
-        datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-    )
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 class JobNotFound(KeyError):
@@ -368,8 +367,8 @@ class DownloadStore:
         try:
             records = json.loads(metadata_path.read_text(encoding="utf-8"))
             if not isinstance(records, list):
-                raise ValueError("legacy metadata root is not a list")
-        except (OSError, ValueError, json.JSONDecodeError) as error:
+                raise TypeError("legacy metadata root is not a list")
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as error:
             LOGGER.warning("Could not migrate %s: %s", metadata_path, error)
             self._set_setting(migration_key, f"failed: {utc_now()}")
             return
