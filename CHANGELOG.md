@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.2](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.2.1...yt-live-downloader-v1.2.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* move the container image to Alpine (888 -&gt; 8 known CVEs) ([#14](https://github.com/dalgibbard/yt-live-downloader/issues/14)) ([6908cd7](https://github.com/dalgibbard/yt-live-downloader/commit/6908cd7bfb2ba24d5d045a76a77efd336c03d4ef))
+
 ## [1.2.1](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.2.0...yt-live-downloader-v1.2.1) (2026-10-28)
 
 
