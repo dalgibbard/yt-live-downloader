@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.3](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.2.2...yt-live-downloader-v1.2.3) (2026-10-28)
+
+
+### Bug Fixes
+
+* **ci:** pin the Trivy action ref so Docker publish can run again ([#17](https://github.com/dalgibbard/yt-live-downloader/issues/17)) ([abe27dd](https://github.com/dalgibbard/yt-live-downloader/commit/abe27dd6b4c0da43b98b47b5e82645bf7f47320e))
+
 ## [1.2.2](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.2.1...yt-live-downloader-v1.2.2) (2026-10-28)
 
 
