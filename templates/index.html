@@ -55,13 +55,36 @@
                         aria-describedby="url-hint capture-error"
                         required
                     >
-                    <button class="button button-primary capture-submit" type="submit">
-                        <span class="button-spinner" aria-hidden="true"></span>
-                        <span class="button-label">Start capture</span>
-                    </button>
+                    <div class="capture-submit-group">
+                        <button class="button button-primary capture-submit" type="submit">
+                            <span class="button-spinner" aria-hidden="true"></span>
+                            <span class="button-label">Start capture</span>
+                        </button>
+                        <button class="button button-primary capture-mode-toggle" id="capture-mode-toggle"
+                                type="button" aria-haspopup="menu" aria-expanded="false"
+                                aria-controls="capture-mode-menu" aria-label="Choose what to capture">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="m7 10 5 5 5-5"/>
+                            </svg>
+                        </button>
+                        <div class="capture-mode-menu" id="capture-mode-menu" role="menu"
+                             aria-labelledby="capture-mode-toggle" hidden>
+                            <button class="capture-mode-option" type="button" role="menuitemradio"
+                                    aria-checked="true" data-mode="video">
+                                <span class="capture-mode-option-label">Video</span>
+                                <span class="capture-mode-option-detail">Best video and audio merged</span>
+                            </button>
+                            <button class="capture-mode-option" type="button" role="menuitemradio"
+                                    aria-checked="false" data-mode="audio">
+                                <span class="capture-mode-option-label">MP3 audio only</span>
+                                <span class="capture-mode-option-detail">Audio track extracted to MP3</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="form-support">
                     <p class="field-hint" id="url-hint">Scheduled streams can be added before they go live.</p>
+                    <p class="capture-mode-status" id="capture-mode-status">Capture type: video</p>
                     <p class="form-error" id="capture-error" role="alert" hidden></p>
                 </div>
             </form>
@@ -130,13 +153,30 @@
         <tr class="download-row">
             <td class="stream-column" data-label="Stream">
                 <div class="stream-cell">
-                    <div class="thumbnail-shell">
+                    <div class="thumbnail-shell is-static">
                         <img class="stream-thumbnail" alt="" width="160" height="90" loading="lazy" decoding="async">
                         <span class="thumbnail-placeholder" aria-hidden="true">
                             <svg viewBox="0 0 24 24" focusable="false">
                                 <path d="M4 6.5h16v11H4zM10 9l5 3-5 3z"/>
                             </svg>
                         </span>
+                    </div>
+                    <div class="thumbnail-shell is-playable" hidden>
+                        <button class="thumbnail-play" data-action="play" type="button">
+                            <img class="stream-thumbnail" alt="" width="160" height="90" loading="lazy" decoding="async">
+                            <span class="thumbnail-placeholder" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" focusable="false">
+                                    <path d="M4 6.5h16v11H4zM10 9l5 3-5 3z"/>
+                                </svg>
+                            </span>
+                            <span class="thumbnail-scrim" aria-hidden="true"></span>
+                            <span class="thumbnail-play-icon" aria-hidden="true">
+                                <svg viewBox="0 0 24 24" focusable="false">
+                                    <path d="M8.5 5.8 18 12l-9.5 6.2V5.8Z"/>
+                                </svg>
+                            </span>
+                            <span class="thumbnail-resume" aria-hidden="true" hidden></span>
+                        </button>
                     </div>
                     <div class="stream-copy">
                         <h3 class="stream-title"></h3>
@@ -172,13 +212,32 @@
             </td>
             <td class="file-column" data-label="File">
                 <span class="file-state"></span>
+                <span class="capture-kind" hidden></span>
                 <span class="file-name"></span>
                 <span class="file-size"></span>
             </td>
             <td class="actions-column" data-label="Actions">
                 <div class="row-actions">
                     <button class="button button-small button-primary action-play" data-action="play" type="button">Play</button>
-                    <a class="button button-small button-secondary action-download" data-action="download">Download</a>
+                    <div class="download-group">
+                        <a class="button button-small button-secondary action-download" data-action="download">Download</a>
+                        <button class="button button-small button-secondary download-mode-toggle" data-action="download-menu"
+                                type="button" aria-haspopup="menu" aria-expanded="false" aria-label="More download options">
+                            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                                <path d="m7 10 5 5 5-5"/>
+                            </svg>
+                        </button>
+                        <div class="download-mode-menu" hidden role="menu" aria-label="Download options">
+                            <button class="download-mode-option" data-action="download-original" type="button" role="menuitem">
+                                <span class="download-mode-option-label">Download the captured file</span>
+                                <span class="download-mode-option-detail">The file exactly as captured</span>
+                            </button>
+                            <button class="download-mode-option" data-action="download-audio" type="button" role="menuitem">
+                                <span class="download-mode-option-label">MP3 audio only</span>
+                                <span class="download-mode-option-detail">Extract an MP3 capture from this video</span>
+                            </button>
+                        </div>
+                    </div>
                     <button class="button button-small button-secondary" data-action="rename" type="button">Rename</button>
                     <button class="button button-small button-secondary action-cancel" data-action="cancel" type="button">Cancel</button>
                     <button class="button button-small button-secondary action-retry" data-action="retry" type="button">Retry</button>
@@ -200,6 +259,13 @@
             </div>
             <div class="video-frame">
                 <video id="playback-video" controls playsinline preload="metadata"></video>
+            </div>
+            <div class="resume-banner" id="resume-banner" hidden>
+                <span class="resume-text" id="resume-text"></span>
+                <div class="resume-actions">
+                    <button class="text-button" id="resume-restart" type="button">Start from the beginning</button>
+                    <button class="text-button" id="resume-clear" type="button">Forget my position</button>
+                </div>
             </div>
             <p class="playback-error" id="playback-error" role="status" hidden>
                 This browser could not play the video. You can still download the file.

@@ -49,6 +49,17 @@
     const POLL_INTERVAL_HIDDEN = 30_000;
     const POLL_INTERVAL_MAX = 60_000;
     const REQUEST_TIMEOUT = 15_000;
+    const RESUME_STORAGE_KEY = "yt-live-downloader:resume";
+    const RESUME_MAX_ENTRIES = 60;
+    const RESUME_MIN_POSITION = 5;
+    const RESUME_ENDING_MARGIN_SECONDS = 15;
+    const RESUME_ENDING_PROPORTION = 0.1;
+    const RESUME_ENDING_RATIO = 0.985;
+    const RESUME_SAVE_INTERVAL_MS = 5_000;
+    const CAPTURE_MODE_LABELS = {
+        audio: "MP3 audio only",
+        video: "video",
+    };
 
     const elements = {
         serviceStatus: document.querySelector("#service-status"),
@@ -57,6 +68,9 @@
         captureInput: document.querySelector("#youtube-url"),
         captureSubmit: document.querySelector(".capture-submit"),
         captureSubmitLabel: document.querySelector(".capture-submit .button-label"),
+        captureModeToggle: document.querySelector("#capture-mode-toggle"),
+        captureModeMenu: document.querySelector("#capture-mode-menu"),
+        captureModeStatus: document.querySelector("#capture-mode-status"),
         captureError: document.querySelector("#capture-error"),
         connectionBanner: document.querySelector("#connection-banner"),
         connectionMessage: document.querySelector("#connection-message"),
@@ -74,6 +88,10 @@
         playbackError: document.querySelector("#playback-error"),
         playbackFileName: document.querySelector("#playback-file-name"),
         playbackDownload: document.querySelector("#playback-download"),
+        resumeBanner: document.querySelector("#resume-banner"),
+        resumeText: document.querySelector("#resume-text"),
+        resumeRestart: document.querySelector("#resume-restart"),
+        resumeClear: document.querySelector("#resume-clear"),
         renameDialog: document.querySelector("#rename-dialog"),
         renameForm: document.querySelector("#rename-form"),
         renameInput: document.querySelector("#rename-title"),
@@ -102,6 +120,9 @@
     let hasLoaded = false;
     let mutationVersion = 0;
     let playbackContext = null;
+    let playbackResume = null;
+    let resumeSavedAt = 0;
+    let captureMode = "video";
     let renameContext = null;
     let confirmationContext = null;
 
@@ -431,18 +452,188 @@
         });
     }
 
+    function readResumePositions() {
+        try {
+            const parsed = JSON.parse(window.localStorage.getItem(RESUME_STORAGE_KEY) || "{}");
+            return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+        } catch (_error) {
+            return {};
+        }
+    }
+
+    function savedPosition(id) {
+        const entry = readResumePositions()[String(id)];
+        if (!entry || typeof entry !== "object") {
+            return null;
+        }
+        const position = finiteNumber(entry.position);
+        const duration = finiteNumber(entry.duration);
+        if (position === null || position < RESUME_MIN_POSITION) {
+            return null;
+        }
+        return { position, duration: duration && duration > 0 ? duration : null };
+    }
+
+    function endingMargin(duration) {
+        if (!duration) {
+            return RESUME_ENDING_MARGIN_SECONDS;
+        }
+        // A fixed margin would swallow most of a short clip, so it scales with
+        // the media length and never exceeds the seconds-level cutoff.
+        return Math.min(
+            RESUME_ENDING_MARGIN_SECONDS,
+            Math.max(RESUME_MIN_POSITION, duration * RESUME_ENDING_PROPORTION)
+        );
+    }
+
+    function nearPlaybackEnd(position, duration) {
+        if (!duration) {
+            return false;
+        }
+        return position >= duration * RESUME_ENDING_RATIO || position >= duration - endingMargin(duration);
+    }
+
+    function rememberPosition(id, position, duration) {
+        if (!id) {
+            return;
+        }
+        const key = String(id);
+        const numeric = finiteNumber(position);
+        const store = readResumePositions();
+        if (numeric === null || numeric < RESUME_MIN_POSITION) {
+            delete store[key];
+        } else {
+            const length = finiteNumber(duration);
+            store[key] = {
+                position: Math.round(numeric),
+                duration: length !== null && length > 0 ? Math.round(length) : null,
+                updated_at: new Date().toISOString(),
+            };
+        }
+
+        const trimmed = Object.entries(store);
+        if (trimmed.length <= RESUME_MAX_ENTRIES) {
+            try {
+                window.localStorage.setItem(RESUME_STORAGE_KEY, JSON.stringify(Object.fromEntries(trimmed)));
+            } catch (_error) {
+                // Storage may be unavailable (private mode, quota). Resume is a nicety, not a contract.
+            }
+            return;
+        }
+
+        trimmed.sort((left, right) => asText(right[1] && right[1].updated_at).localeCompare(asText(left[1] && left[1].updated_at)));
+        try {
+            window.localStorage.setItem(
+                RESUME_STORAGE_KEY,
+                JSON.stringify(Object.fromEntries(trimmed.slice(0, RESUME_MAX_ENTRIES))),
+            );
+        } catch (_error) {
+            // As above: losing resume state must never break the library view.
+        }
+    }
+
+    function forgetPosition(id) {
+        if (!id) {
+            return;
+        }
+        const store = readResumePositions();
+        delete store[String(id)];
+        try {
+            window.localStorage.setItem(RESUME_STORAGE_KEY, JSON.stringify(store));
+        } catch (_error) {
+            // Ignored for the same reason as rememberPosition().
+        }
+    }
+
+    function pruneResumeStorage() {
+        const store = readResumePositions();
+        for (const key of Object.keys(store)) {
+            if (!downloads.has(key)) {
+                delete store[key];
+            }
+        }
+        try {
+            window.localStorage.setItem(RESUME_STORAGE_KEY, JSON.stringify(store));
+        } catch (_error) {
+            // Ignored.
+        }
+    }
+
+    function resumeFraction(id) {
+        const saved = savedPosition(id);
+        const job = downloads.get(String(id));
+        if (!saved || !job) {
+            return null;
+        }
+        const duration = saved.duration || finiteNumber(job.progress && job.progress.duration_seconds);
+        if (!duration || duration <= 0 || nearPlaybackEnd(saved.position, duration)) {
+            return null;
+        }
+        return clamp(saved.position / duration, 0.02, 1);
+    }
+
+    function videoDuration(job, video) {
+        const fromMedia = video ? finiteNumber(video.duration) : null;
+        if (fromMedia !== null && fromMedia > 0) {
+            return fromMedia;
+        }
+        const fromJob = job ? finiteNumber(job.progress && job.progress.duration_seconds) : null;
+        return fromJob !== null && fromJob > 0 ? fromJob : null;
+    }
+
+    function showResumeBanner(resume, duration) {
+        if (!resume) {
+            elements.resumeBanner.hidden = true;
+            elements.resumeText.textContent = "";
+            return;
+        }
+        const savedFor = formatDuration(resume.position);
+        const total = duration && duration > 0 ? formatDuration(duration) : "";
+        elements.resumeText.textContent = total
+            ? `Resuming from ${savedFor} of ${total}.`
+            : `Resuming from ${savedFor}.`;
+        elements.resumeBanner.hidden = false;
+    }
+
+    function rememberPlaybackPosition() {
+        const context = playbackContext;
+        if (!context) {
+            return;
+        }
+        const job = downloads.get(context.id);
+        if (!job || job.file.state !== "available" || elements.playbackVideo.ended) {
+            return;
+        }
+        const position = finiteNumber(elements.playbackVideo.currentTime);
+        if (position === null || position < RESUME_MIN_POSITION) {
+            return;
+        }
+        rememberPosition(context.id, position, videoDuration(job, elements.playbackVideo));
+    }
+
     function makeRow(job) {
         const row = elements.rowTemplate.content.firstElementChild.cloneNode(true);
         row.dataset.downloadId = job.id;
-        const thumbnail = row.querySelector(".stream-thumbnail");
-        thumbnail.addEventListener("error", () => {
-            thumbnail.classList.add("is-unavailable");
-        });
+        for (const thumbnail of row.querySelectorAll(".stream-thumbnail")) {
+            thumbnail.addEventListener("error", () => {
+                thumbnail.classList.add("is-unavailable");
+            });
+        }
         return row;
     }
 
     function updateThumbnail(row, job) {
-        const thumbnail = row.querySelector(".stream-thumbnail");
+        // A finished file is playable straight from the thumbnail; captures without a file keep
+        // the plain shell so the hover play affordance is not a lie.
+        const playableShell = row.querySelector(".thumbnail-shell.is-playable");
+        const staticShell = row.querySelector(".thumbnail-shell.is-static");
+        const playable = job.file.state === "available" && Boolean(safeUrl(job.file.playback_url));
+        playableShell.hidden = !playable;
+        staticShell.hidden = playable;
+
+        const thumbnail = playable
+            ? playableShell.querySelector(".stream-thumbnail")
+            : staticShell.querySelector(".stream-thumbnail");
         const thumbnailUrl = safeUrl(job.thumbnail_url);
         if (!thumbnailUrl) {
             thumbnail.removeAttribute("src");
@@ -637,12 +828,16 @@
     function updateFileCell(row, job) {
         const fileState = job.file.state || "unknown";
         const stateElement = row.querySelector(".file-state");
+        const kindElement = row.querySelector(".capture-kind");
         const nameElement = row.querySelector(".file-name");
         const sizeElement = row.querySelector(".file-size");
         const fileSize = finiteNumber(job.file.size_bytes);
 
         stateElement.className = `file-state file-${fileState}`;
         stateElement.textContent = FILE_STATE_LABELS[fileState] || FILE_STATE_LABELS.unknown;
+        const audioOnly = job.mode === "audio";
+        kindElement.hidden = !audioOnly;
+        kindElement.textContent = audioOnly ? "MP3 audio only" : "";
         nameElement.textContent = job.file.name;
         nameElement.title = job.file.name;
         nameElement.hidden = !job.file.name;
@@ -659,7 +854,13 @@
         const isActive = ACTIVE_STATES.has(job.state);
         const isBusy = busyJobs.has(job.id);
         const play = row.querySelector(".action-play");
+        const thumbnailPlay = row.querySelector(".thumbnail-play");
+        const thumbnailResume = row.querySelector(".thumbnail-resume");
         const download = row.querySelector(".action-download");
+        const downloadGroup = row.querySelector(".download-group");
+        const downloadToggle = row.querySelector(".download-mode-toggle");
+        const downloadOriginal = row.querySelector('[data-action="download-original"]');
+        const downloadAudio = row.querySelector('[data-action="download-audio"]');
         const rename = row.querySelector('[data-action="rename"]');
         const cancel = row.querySelector(".action-cancel");
         const retry = row.querySelector(".action-retry");
@@ -674,6 +875,10 @@
 
         play.hidden = !canPlay;
         play.disabled = isBusy;
+        thumbnailPlay.disabled = !canPlay || isBusy;
+        const watched = canPlay ? resumeFraction(job.id) : null;
+        thumbnailResume.hidden = watched === null;
+        thumbnailResume.style.width = watched === null ? "" : `${(watched * 100).toFixed(2)}%`;
         download.hidden = !canDownload;
         if (canDownload) {
             const downloadUrl = safeUrl(job.file.download_url) || jobEndpoint(job.id, "/file");
@@ -683,6 +888,41 @@
         } else {
             download.removeAttribute("href");
             download.removeAttribute("download");
+        }
+
+        // Video captures can also be turned into an MP3 capture from the stored
+        // file, so the Download control carries a small options menu.
+        const variant = audioVariantFor(job.id);
+        const offerAudio = canDownload && job.mode !== "audio";
+        downloadGroup.hidden = !canDownload;
+        downloadToggle.hidden = !offerAudio;
+        if (!offerAudio) {
+            closeDownloadMenu(row);
+        } else {
+            const optionLabel = downloadAudio.querySelector(".download-mode-option-label");
+            const optionDetail = downloadAudio.querySelector(".download-mode-option-detail");
+            if (variant && variant.file.state === "available") {
+                optionLabel.textContent = "Download the MP3 capture";
+                optionDetail.textContent = "Ready to play or save";
+                downloadAudio.disabled = isBusy;
+            } else if (variant) {
+                optionLabel.textContent = "MP3 capture in progress";
+                optionDetail.textContent = STATE_LABELS[variant.state] || "Queued";
+                downloadAudio.disabled = true;
+            } else {
+                optionLabel.textContent = "MP3 audio only";
+                optionDetail.textContent = "Extract an MP3 capture from this video";
+                downloadAudio.disabled = isBusy;
+            }
+            setActionLabel(downloadOriginal, "Download the captured file for", title);
+            setActionLabel(
+                downloadAudio,
+                variant && variant.file.state === "available"
+                    ? "Download the MP3 capture for"
+                    : "Extract MP3 audio for",
+                title
+            );
+            setActionLabel(downloadToggle, "Download options for", title);
         }
 
         cancel.hidden = !isActive;
@@ -699,6 +939,7 @@
         }
 
         setActionLabel(play, "Play", title);
+        thumbnailPlay.setAttribute("aria-label", `Play ${title} from the thumbnail`);
         setActionLabel(rename, "Rename", title);
         setActionLabel(cancel, "Cancel capture for", title);
         setActionLabel(retry, "Retry", title);
@@ -774,6 +1015,8 @@
         announceStateChanges(downloads, next);
         downloads = next;
         renderDownloads();
+        // Resume entries only earn their keep while the job they point at still exists.
+        pruneResumeStorage();
     }
 
     function upsertJob(job) {
@@ -881,6 +1124,7 @@
 
     function setCaptureBusy(isBusy) {
         elements.captureSubmit.disabled = isBusy;
+        elements.captureModeToggle.disabled = isBusy;
         elements.captureInput.disabled = isBusy;
         elements.captureSubmit.setAttribute("aria-busy", String(isBusy));
         elements.captureSubmitLabel.textContent = isBusy ? "Starting…" : "Start capture";
@@ -901,6 +1145,40 @@
         return "";
     }
 
+    function captureModeOptions() {
+        return [...elements.captureModeMenu.querySelectorAll(".capture-mode-option")];
+    }
+
+    function setCaptureMode(mode) {
+        const choice = Object.hasOwn(CAPTURE_MODE_LABELS, mode) ? mode : "video";
+        captureMode = choice;
+        for (const option of captureModeOptions()) {
+            const selected = option.dataset.mode === choice;
+            option.setAttribute("aria-checked", String(selected));
+            option.classList.toggle("is-selected", selected);
+        }
+        elements.captureModeStatus.textContent = `Capture type: ${CAPTURE_MODE_LABELS[choice]}`;
+        elements.captureModeStatus.classList.toggle("is-audio", choice === "audio");
+        elements.captureModeToggle.setAttribute(
+            "aria-label",
+            `Capture type: ${CAPTURE_MODE_LABELS[choice]}. Change capture type`,
+        );
+        elements.captureSubmit.classList.toggle("capture-submit-audio", choice === "audio");
+    }
+
+    function setCaptureMenu(isOpen) {
+        elements.captureModeMenu.hidden = !isOpen;
+        elements.captureModeToggle.setAttribute("aria-expanded", String(isOpen));
+    }
+
+    function focusCaptureModeOption(mode) {
+        const options = captureModeOptions();
+        const selected = options.find((option) => option.dataset.mode === mode) || options[0];
+        if (selected) {
+            selected.focus();
+        }
+    }
+
     async function submitCapture(event) {
         event.preventDefault();
         const url = elements.captureInput.value.trim();
@@ -916,7 +1194,7 @@
         try {
             const payload = await requestJson("/api/downloads", {
                 method: "POST",
-                body: JSON.stringify({ url }),
+                body: JSON.stringify({ url, mode: captureMode }),
             });
             const job = extractJob(payload);
             if (job) {
@@ -975,6 +1253,19 @@
         elements.playbackFileName.title = job.file.name;
         elements.playbackError.hidden = true;
         elements.playbackDownload.href = downloadUrl;
+
+        // Resume: only offer it when there is something worth returning to.
+        const saved = savedPosition(job.id);
+        playbackResume = null;
+        resumeSavedAt = 0;
+        if (saved) {
+            const duration = saved.duration || finiteNumber(job.progress && job.progress.duration_seconds);
+            if (!nearPlaybackEnd(saved.position, duration)) {
+                playbackResume = saved;
+            }
+        }
+        showResumeBanner(playbackResume, playbackResume ? playbackResume.duration : null);
+
         const posterUrl = safeUrl(job.thumbnail_url);
         if (posterUrl) {
             elements.playbackVideo.poster = posterUrl;
@@ -989,6 +1280,10 @@
 
     function resetPlayback() {
         elements.playbackVideo.pause();
+        if (playbackResume) {
+            // Snapshot the resume point because currentTime resets once the source is dropped.
+            playbackResume.position = elements.playbackVideo.currentTime || playbackResume.position;
+        }
         elements.playbackVideo.removeAttribute("src");
         elements.playbackVideo.removeAttribute("poster");
         elements.playbackVideo.load();
@@ -1115,6 +1410,8 @@
                 return requestJson(jobEndpoint(id), { method: "DELETE" });
             case "retry":
                 return requestJson(jobEndpoint(id, "/retry"), { method: "POST" });
+            case "extract-audio":
+                return requestJson(jobEndpoint(id, "/audio"), { method: "POST" });
             default:
                 return Promise.reject(new ApiError("Unsupported action."));
         }
@@ -1225,6 +1522,73 @@
         }
     }
 
+    function audioVariantFor(jobId) {
+        for (const job of downloads.values()) {
+            if (job.derived_from === jobId) {
+                return job;
+            }
+        }
+        return null;
+    }
+
+    function openDownloadMenu(row) {
+        closeDownloadMenus(row);
+        const menu = row.querySelector(".download-mode-menu");
+        const toggle = row.querySelector(".download-mode-toggle");
+        if (!menu || !toggle) {
+            return;
+        }
+        menu.hidden = false;
+        toggle.setAttribute("aria-expanded", "true");
+    }
+
+    function closeDownloadMenu(row) {
+        const menu = row.querySelector(".download-mode-menu");
+        const toggle = row.querySelector(".download-mode-toggle");
+        if (!menu || !toggle) {
+            return;
+        }
+        menu.hidden = true;
+        toggle.setAttribute("aria-expanded", "false");
+    }
+
+    function closeDownloadMenus(exceptRow) {
+        for (const row of rows.values()) {
+            if (row !== exceptRow) {
+                closeDownloadMenu(row);
+            }
+        }
+    }
+
+    async function extractAudioVariant(job) {
+        const existing = audioVariantFor(job.id);
+        closeDownloadMenus(null);
+        if (existing) {
+            if (existing.file.state === "available") {
+                const downloadUrl = safeUrl(existing.file.download_url) ||
+                    jobEndpoint(existing.id, "/file");
+                if (downloadUrl) {
+                    window.location.assign(downloadUrl);
+                }
+            } else {
+                showToast("The MP3 capture for this video is already under way.", "info");
+            }
+            return;
+        }
+        setJobBusy(job.id, true);
+        mutationVersion += 1;
+        try {
+            const payload = await mutationRequest("extract-audio", job.id);
+            applyMutationResult("extract-audio", job, payload);
+            showToast(`Extracting an MP3 of ${displayTitle(job)}.`, "success");
+            pollNow();
+        } catch (error) {
+            showToast(error.message || "Could not start the MP3 extraction.", "error");
+        } finally {
+            setJobBusy(job.id, false);
+        }
+    }
+
     function handleRowAction(event) {
         const control = event.target.closest("[data-action]");
         if (!control || !elements.downloadsBody.contains(control)) {
@@ -1241,12 +1605,33 @@
 
         event.preventDefault();
         const row = control.closest(".download-row");
+        if (action === "download-menu") {
+            if (row) {
+                const menu = row.querySelector(".download-mode-menu");
+                if (menu) {
+                    if (menu.hidden) {
+                        openDownloadMenu(row);
+                    } else {
+                        closeDownloadMenu(row);
+                    }
+                }
+            }
+            return;
+        }
         const job = row ? downloads.get(row.dataset.downloadId) : null;
         if (!job || busyJobs.has(job.id)) {
             return;
         }
 
-        if (action === "play") {
+        if (action === "download-original") {
+            closeDownloadMenu(row);
+            const storedLink = row.querySelector(".action-download");
+            if (storedLink && storedLink.href) {
+                window.location.assign(storedLink.href);
+            }
+        } else if (action === "download-audio") {
+            void extractAudioVariant(job);
+        } else if (action === "play") {
             openPlaybackDialog(job, control);
         } else if (action === "rename") {
             openRenameDialog(job, control);
@@ -1291,6 +1676,136 @@
     }
 
     elements.captureForm.addEventListener("submit", submitCapture);
+
+    elements.captureModeToggle.addEventListener("click", () => {
+        const willOpen = elements.captureModeMenu.hidden;
+        setCaptureMenu(willOpen);
+        if (willOpen) {
+            focusCaptureModeOption(captureMode);
+        }
+    });
+
+    elements.downloadsBody.addEventListener("keydown", (event) => {
+        const control = event.target.closest("[data-action]");
+        if (!control) {
+            return;
+        }
+        const row = control.closest(".download-row");
+        if (!row) {
+            return;
+        }
+        const toggle = row.querySelector(".download-mode-toggle");
+        const menu = row.querySelector(".download-mode-menu");
+        if (!toggle || !menu) {
+            return;
+        }
+        const inToggle = control === toggle;
+        const inMenu = menu.contains(control);
+        if (!inToggle && !inMenu) {
+            return;
+        }
+        const options = [...menu.querySelectorAll(".download-mode-option")].filter(
+            (option) => !option.hidden
+        );
+
+        if (event.key === "Escape") {
+            if (!menu.hidden) {
+                event.preventDefault();
+                closeDownloadMenu(row);
+                toggle.focus();
+            }
+            return;
+        }
+        if (event.key === "Tab") {
+            closeDownloadMenu(row);
+            return;
+        }
+        if (inToggle && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+            event.preventDefault();
+            openDownloadMenu(row);
+            if (options.length) {
+                options[0].focus();
+            }
+            return;
+        }
+        if (inMenu && options.length) {
+            const index = options.indexOf(document.activeElement);
+            if (event.key === "Home") {
+                event.preventDefault();
+                options[0].focus();
+                return;
+            }
+            if (event.key === "End") {
+                event.preventDefault();
+                options[options.length - 1].focus();
+                return;
+            }
+            if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                event.preventDefault();
+                const step = event.key === "ArrowDown" ? 1 : -1;
+                options[(index + step + options.length) % options.length].focus();
+            }
+        }
+    });
+
+    elements.captureModeToggle.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            setCaptureMenu(true);
+            focusCaptureModeOption(captureMode);
+        } else if (event.key === "Escape") {
+            setCaptureMenu(false);
+        }
+    });
+
+    elements.captureModeMenu.addEventListener("keydown", (event) => {
+        const options = captureModeOptions();
+        if (!options.length) {
+            return;
+        }
+        const index = options.indexOf(document.activeElement);
+        if (event.key === "Escape") {
+            event.preventDefault();
+            setCaptureMenu(false);
+            elements.captureModeToggle.focus();
+            return;
+        }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+            event.preventDefault();
+            const step = event.key === "ArrowDown" ? 1 : -1;
+            const next = options[(index + step + options.length) % options.length];
+            next.focus();
+            return;
+        }
+        if (event.key === "Home") {
+            event.preventDefault();
+            options[0].focus();
+            return;
+        }
+        if (event.key === "End") {
+            event.preventDefault();
+            options[options.length - 1].focus();
+        }
+    });
+
+    for (const option of captureModeOptions()) {
+        option.addEventListener("click", () => {
+            setCaptureMode(option.dataset.mode);
+            setCaptureMenu(false);
+            elements.captureModeToggle.focus();
+        });
+    }
+
+    document.addEventListener("click", (event) => {
+        if (!elements.captureModeMenu.hidden && !event.target.closest(".capture-submit-group")) {
+            setCaptureMenu(false);
+        }
+        if (!event.target.closest(".download-group")) {
+            closeDownloadMenus(null);
+        }
+    });
+
+    setCaptureMode(captureMode);
     elements.captureInput.addEventListener("input", () => setCaptureError());
     elements.downloadsBody.addEventListener("click", handleRowAction);
     elements.renameForm.addEventListener("submit", submitRename);
@@ -1300,6 +1815,73 @@
             elements.playbackError.hidden = false;
         }
     });
+
+    elements.playbackVideo.addEventListener("loadedmetadata", () => {
+        if (!playbackResume) {
+            return;
+        }
+        const duration = videoDuration(playbackContext ? downloads.get(playbackContext.id) : null, elements.playbackVideo);
+        const target = duration
+            ? Math.min(playbackResume.position, Math.max(0, duration - endingMargin(duration)))
+            : playbackResume.position;
+        try {
+            elements.playbackVideo.currentTime = target;
+        } catch (_error) {
+            // Seeking can fail on a stream that is still being written.
+        }
+        playbackResume = { position: target, duration };
+        showResumeBanner(playbackResume, duration);
+    });
+
+    elements.playbackVideo.addEventListener("timeupdate", () => {
+        if (!playbackContext) {
+            return;
+        }
+        const position = finiteNumber(elements.playbackVideo.currentTime);
+        if (position === null || position < RESUME_MIN_POSITION) {
+            return;
+        }
+        const movedOn = playbackResume === null || Math.abs(position - playbackResume.position) >= RESUME_MIN_POSITION;
+        if (!movedOn && Date.now() < resumeSavedAt) {
+            // timeupdate fires several times a second; localStorage only needs a heartbeat.
+            return;
+        }
+        const duration = videoDuration(downloads.get(playbackContext.id), elements.playbackVideo);
+        rememberPosition(playbackContext.id, position, duration);
+        playbackResume = { position, duration };
+        resumeSavedAt = Date.now() + RESUME_SAVE_INTERVAL_MS;
+    });
+
+    elements.playbackVideo.addEventListener("ended", () => {
+        if (playbackContext) {
+            forgetPosition(playbackContext.id);
+        }
+        playbackResume = null;
+        elements.resumeBanner.hidden = true;
+    });
+
+    elements.resumeRestart.addEventListener("click", () => {
+        if (!playbackContext) {
+            return;
+        }
+        forgetPosition(playbackContext.id);
+        playbackResume = null;
+        elements.resumeBanner.hidden = true;
+        elements.playbackVideo.currentTime = 0;
+        void elements.playbackVideo.play().catch(() => {});
+    });
+
+    elements.resumeClear.addEventListener("click", () => {
+        if (!playbackContext) {
+            return;
+        }
+        forgetPosition(playbackContext.id);
+        playbackResume = null;
+        elements.resumeBanner.hidden = true;
+    });
+
+    // Closing the tab (or the browser killing the page) should still leave a position behind.
+    window.addEventListener("pagehide", rememberPlaybackPosition);
 
     for (const closeButton of document.querySelectorAll("[data-close-dialog]")) {
         closeButton.addEventListener("click", () => {
@@ -1321,8 +1903,14 @@
     });
 
     elements.playbackDialog.addEventListener("close", () => {
-        const trigger = playbackContext && playbackContext.trigger;
+        const context = playbackContext;
+        // Store the position before the source is torn down so the next visit can resume.
+        rememberPlaybackPosition();
+        const trigger = context && context.trigger;
         playbackContext = null;
+        playbackResume = null;
+        resumeSavedAt = 0;
+        elements.resumeBanner.hidden = true;
         resetPlayback();
         if (trigger && trigger.isConnected) {
             trigger.focus();
