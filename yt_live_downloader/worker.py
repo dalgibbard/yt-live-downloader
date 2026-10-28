@@ -11,7 +11,7 @@ import threading
 import time
 from collections import OrderedDict
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -452,7 +452,7 @@ def _candidate_artifact(staging: Path, reporter: ProgressReporter, info: Any) ->
         for item in info.get("requested_downloads") or []:
             if isinstance(item, dict) and item.get("filepath"):
                 candidates.append(Path(str(item["filepath"])))
-    try:
+    with suppress(OSError):
         candidates.extend(
             sorted(
                 (path for path in staging.rglob("*") if path.is_file()),
@@ -460,8 +460,6 @@ def _candidate_artifact(staging: Path, reporter: ProgressReporter, info: Any) ->
                 reverse=True,
             )
         )
-    except OSError:
-        pass
 
     root = staging.resolve()
     seen: set[Path] = set()

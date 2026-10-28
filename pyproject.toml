@@ -1,0 +1,36 @@
+[tool.ruff]
+# Explicit rule selection: ruff's *default* rule set is not stable across
+# releases (0.15 -> 0.17 grew from 59 to 407 enabled rules), so we pin what we
+# enforce here instead of inheriting defaults. Add families deliberately.
+target-version = "py313"
+line-length = 88
+
+[tool.ruff.lint]
+select = [
+  "E",     # pycodestyle errors
+  "W",     # pycodestyle warnings
+  "F",     # pyflakes
+  "I",     # isort
+  "UP",    # pyupgrade
+  "YTT",   # flake8-2020 (sys.version idioms)
+  "S",     # bandit (security)
+  "B",     # bugbear
+  "C4",    # comprehensions
+  "SIM",   # simplify
+  "PT",    # flake8-pytest-style
+  "RUF",   # ruff-specific
+]
+ignore = [
+  "E501",   # line length is the formatter's job
+  "RUF001", # en dashes are deliberate here (filename sanitiser + its tests)
+  "S608",   # SQL is built from internal column names + ? placeholders; values are bound
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = [
+  "S101",  # assert is how pytest tests assert
+  "PT011", # parametrised cases reject with a family of messages, not one
+]
+
+[tool.ruff.format]
+docstring-code-format = true
