@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.1](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.3.0...yt-live-downloader-v1.3.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* **deps:** bump python from 3.13.18-alpine3.24 to 3.15.2-alpine3.24 ([#16](https://github.com/dalgibbard/yt-live-downloader/issues/16)) ([3c76abd](https://github.com/dalgibbard/yt-live-downloader/commit/3c76abd2654cc9fd49f289007bfbafb60a5325fd))
+
 ## [1.3.0](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.2.3...yt-live-downloader-v1.3.0) (2026-10-28)
 
 
