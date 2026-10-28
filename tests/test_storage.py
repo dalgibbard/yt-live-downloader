@@ -1,4 +1,5 @@
 import json
+import sqlite3
 
 from yt_live_downloader.storage import DownloadStore
 
@@ -103,4 +104,72 @@ def test_legacy_metadata_is_imported_once(tmp_path):
 
     reopened = DownloadStore(root)
     assert len(reopened.list()) == 1
+    reopened.close()
+
+
+def test_audio_only_flag_survives_a_reopen(tmp_path):
+    root = tmp_path / "downloads"
+    first_store = DownloadStore(root)
+    job = first_store.create("https://youtu.be/abc123", audio_only=True)
+    first_store.close()
+
+    second_store = DownloadStore(root)
+    assert second_store.get(job["id"])["audio_only"] is True
+    second_store.close()
+
+
+def test_legacy_database_gains_the_audio_only_column(tmp_path):
+    root = tmp_path / "downloads"
+    store = DownloadStore(root)
+    job = store.create("https://youtu.be/abc123")
+    store.close()
+
+    # Simulate a database written before capture modes existed.
+    connection = sqlite3.connect(store.db_path)
+    connection.execute("ALTER TABLE downloads DROP COLUMN audio_only")
+    connection.commit()
+    connection.close()
+
+    reopened = DownloadStore(root)
+    assert reopened.get(job["id"])["audio_only"] is False
+    added = reopened.create("https://youtu.be/def456", audio_only=True)
+    assert added["audio_only"] is True
+    reopened.close()
+
+
+def test_derived_capture_keeps_its_source_job(tmp_path):
+    root = tmp_path / "downloads"
+    store = DownloadStore(root)
+    parent = store.create("https://youtu.be/abc123")
+    variant = store.create(
+        "https://youtu.be/abc123", audio_only=True, derived_from=parent["id"]
+    )
+    store.close()
+
+    reopened = DownloadStore(root)
+    stored = reopened.get(variant["id"])
+    assert stored["audio_only"] is True
+    assert stored["derived_from"] == parent["id"]
+    assert reopened.get(parent["id"])["derived_from"] is None
+    reopened.close()
+
+
+def test_legacy_database_gains_the_derived_from_column(tmp_path):
+    root = tmp_path / "downloads"
+    store = DownloadStore(root)
+    job = store.create("https://youtu.be/abc123")
+    store.close()
+
+    # Simulate a database written before derived captures existed.
+    connection = sqlite3.connect(store.db_path)
+    connection.execute("ALTER TABLE downloads DROP COLUMN derived_from")
+    connection.commit()
+    connection.close()
+
+    reopened = DownloadStore(root)
+    assert reopened.get(job["id"])["derived_from"] is None
+    added = reopened.create(
+        "https://youtu.be/def456", audio_only=True, derived_from=job["id"]
+    )
+    assert added["derived_from"] == job["id"]
     reopened.close()

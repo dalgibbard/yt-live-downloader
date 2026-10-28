@@ -1,12 +1,27 @@
 from __future__ import annotations
 
+import shutil
+import subprocess
 import time
+from pathlib import Path
 
+import pytest
 import yt_dlp
 
 from yt_live_downloader.manager import DownloadManager
 from yt_live_downloader.storage import DownloadStore
-from yt_live_downloader.worker import ProgressReporter, _finalize, run_worker
+from yt_live_downloader.worker import (
+    ProgressReporter,
+    WorkerFailure,
+    _classify_failure,
+    _extract_audio_variant,
+    _failure_details,
+    _ffmpeg_extract_command,
+    _finalize,
+    _progress_seconds,
+    _ydl_options,
+    run_worker,
+)
 
 VIDEO_FORMAT = {
     "format_id": "137",
@@ -397,4 +412,232 @@ def test_graceful_stop_queues_worker_and_keeps_partial_data(tmp_path):
     assert resumed["state"] == "inspecting"
     assert resumed["attempt"] == paused["attempt"]
     resumed_manager.stop(timeout=2)
+    store.close()
+
+
+def test_video_capture_options_keep_the_merged_video_format(tmp_path):
+    store = DownloadStore(tmp_path / "downloads")
+    job = store.create("https://youtu.be/abc123")
+    reporter = ProgressReporter(store, job["id"], job["attempt"], flush_interval=0)
+
+    options = _ydl_options(tmp_path / "staging", reporter)
+    assert options["format"] == "bv*+ba/b"
+    assert options["merge_output_format"] == "mp4/mkv"
+    assert "postprocessors" not in options
+    store.close()
+
+
+def test_audio_only_capture_options_extract_an_mp3(tmp_path):
+    store = DownloadStore(tmp_path / "downloads")
+    job = store.create("https://youtu.be/abc123", audio_only=True)
+    reporter = ProgressReporter(store, job["id"], job["attempt"], flush_interval=0)
+
+    options = _ydl_options(tmp_path / "staging", reporter, audio_only=True)
+    assert options["format"] == "ba/b"
+    assert "merge_output_format" not in options
+    assert options["postprocessors"] == [
+        {
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": "0",
+        }
+    ]
+    store.close()
+
+
+def test_finalization_keeps_an_mp3_artifact(tmp_path):
+    root = tmp_path / "downloads"
+    store = DownloadStore(root)
+    job = store.create("https://youtu.be/abc123", audio_only=True)
+    store.update(
+        job["id"],
+        title="Audio only stream",
+        source_id="abc123",
+        state="post_processing",
+    )
+    staging = root / ".staging" / job["id"]
+    staging.mkdir(parents=True)
+    source = staging / "abc123.mp3"
+    source.write_bytes(b"finished audio")
+
+    _finalize(
+        store,
+        job["id"],
+        job["attempt"],
+        source,
+        {"downloaded_bytes": 14, "total_bytes": 14, "parts": []},
+    )
+
+    completed = store.get(job["id"])
+    assert completed["state"] == "completed"
+    assert completed["file_path"] == "Audio only stream [abc123].mp3"
+    assert (root / completed["file_path"]).read_bytes() == b"finished audio"
+    store.close()
+
+
+class StubReporter:
+    """Stand-in exposing only the attribute failure mapping reads."""
+
+    def __init__(self, last_error: str | None = None) -> None:
+        self.last_error = last_error
+
+
+@pytest.mark.parametrize(
+    ("message", "summary"),
+    [
+        (
+            "[youtube] BaW_jenozHc: This video is unavailable",
+            "This video is no longer available on YouTube",
+        ),
+        (
+            "ERROR: [youtube] Video unavailable: This video has been removed",
+            "This video is no longer available on YouTube",
+        ),
+        (
+            "ERROR: [youtube] Requested format is not available",
+            "YouTube did not offer a format that can be downloaded",
+        ),
+        (
+            "ERROR: [youtube] Private video. Sign in if you've paid for it",
+            "This video is private",
+        ),
+        (
+            "ERROR: [youtube] This video is members-only",
+            "This video is members-only",
+        ),
+        (
+            "ERROR: [youtube] Age-restricted. Sign in to confirm your age",
+            "This video is age-restricted",
+        ),
+        (
+            "ERROR: [youtube] Sign in to confirm you're not a bot",
+            "YouTube asked for a sign-in before it would serve this video",
+        ),
+        (
+            "ERROR: [youtube] This video is not available in your country",
+            "This video is not available in your region",
+        ),
+        ("ERROR: HTTP Error 404: Not Found", "YouTube could not find this video"),
+        (
+            "ERROR: HTTP Error 429: Too Many Requests",
+            "YouTube is rate limiting these requests",
+        ),
+        (
+            "ERROR: unable to connect: [Errno -2] Getaddrinfo failed",
+            "YouTube could not be reached",
+        ),
+        (
+            "Output file #0 does not contain any stream",
+            "The media file does not contain an audio track",
+        ),
+    ],
+)
+def test_extractor_messages_map_to_readable_summaries(message, summary):
+    assert _classify_failure(message) == summary
+
+
+def test_unrecognised_extractor_message_stays_generic():
+    assert _classify_failure("an unprecedented condition occurred") is None
+    summary, detail = _failure_details(
+        yt_dlp.utils.DownloadError("an unprecedented condition occurred"),
+        StubReporter(),
+    )
+    assert summary == "The stream could not be downloaded"
+    assert "unprecedented" in detail
+
+
+def test_failure_details_report_the_extractor_reason():
+    error = yt_dlp.utils.DownloadError(
+        "[youtube] BaW_jenozHc: This video is unavailable"
+    )
+    summary, detail = _failure_details(error, StubReporter())
+    assert summary == "This video is no longer available on YouTube"
+    assert "BaW_jenozHc" in detail
+
+
+def test_worker_failure_text_is_used_verbatim():
+    summary, _detail = _failure_details(
+        WorkerFailure("The video file does not contain an audio track"), StubReporter()
+    )
+    assert summary == "The video file does not contain an audio track"
+
+
+def test_ffmpeg_progress_timestamps_are_read_as_seconds():
+    assert _progress_seconds("out_time_us=1500000") == pytest.approx(1.5)
+    assert _progress_seconds("out_time_ms=2000000") == pytest.approx(2.0)
+    assert _progress_seconds("out_time=00:01:30.500000") == pytest.approx(90.5)
+    assert _progress_seconds("size=4096") is None
+
+
+def test_ffmpeg_extraction_command_drops_video_and_encodes_mp3():
+    command = _ffmpeg_extract_command(
+        "ffmpeg",
+        Path("/downloads/Stream [abc123].mkv"),
+        Path("/downloads/.staging/job/audio.mp3"),
+    )
+    assert command[0] == "ffmpeg"
+    assert "-vn" in command
+    assert command[command.index("-i") + 1] == "/downloads/Stream [abc123].mkv"
+    assert command[command.index("-c:a") + 1] == "libmp3lame"
+    assert command[-1] == "/downloads/.staging/job/audio.mp3"
+
+
+FFMPEG = shutil.which("ffmpeg")
+
+
+@pytest.mark.skipif(FFMPEG is None, reason="FFmpeg is required for MP3 extraction")
+def test_audio_variant_extraction_produces_a_stored_mp3(tmp_path):
+    assert FFMPEG is not None
+    root = tmp_path / "downloads"
+    store = DownloadStore(root)
+    parent = store.create("https://youtu.be/abc123")
+    media = root / "Stream [abc123].mkv"
+    subprocess.run(  # noqa: S603
+        [
+            FFMPEG,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "sine=frequency=440:duration=2",
+            "-c:a",
+            "aac",
+            str(media),
+        ],
+        check=True,
+    )
+    store.update(
+        parent["id"],
+        title="Stream",
+        source_title="Stream",
+        source_id="abc123",
+        state="completed",
+        phase="completed",
+        file_path=media.name,
+        file_size=media.stat().st_size,
+    )
+    variant = store.create(
+        "https://youtu.be/abc123", audio_only=True, derived_from=parent["id"]
+    )
+    staging = root / ".staging" / variant["id"]
+    staging.mkdir(parents=True)
+    reporter = ProgressReporter(
+        store, variant["id"], variant["attempt"], flush_interval=0
+    )
+
+    produced = _extract_audio_variant(
+        store, variant, variant["attempt"], reporter, staging
+    )
+    assert produced.suffix == ".mp3"
+    assert produced.stat().st_size > 0
+
+    _finalize(store, variant["id"], variant["attempt"], produced, reporter.snapshot())
+    completed = store.get(variant["id"])
+    assert completed["state"] == "completed"
+    assert completed["audio_only"] is True
+    assert completed["derived_from"] == parent["id"]
+    assert completed["file_path"] == "Stream [abc123].mp3"
+    assert (root / completed["file_path"]).stat().st_size > 0
     store.close()

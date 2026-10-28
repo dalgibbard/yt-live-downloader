@@ -23,14 +23,17 @@ LOGGER = logging.getLogger(__name__)
 MAX_URL_LENGTH = 2_048
 MAX_TITLE_LENGTH = 180
 PLAYBACK_MIMETYPES = {
+    ".m4a": "audio/mp4",
     ".m4v": "video/mp4",
     ".mkv": "video/x-matroska",
     ".mov": "video/quicktime",
+    ".mp3": "audio/mpeg",
     ".mp4": "video/mp4",
     ".ogg": "video/ogg",
     ".ogv": "video/ogg",
     ".webm": "video/webm",
 }
+CAPTURE_MODES = frozenset({"video", "audio"})
 YOUTUBE_HOSTS = frozenset(
     {
         "youtube.com",
@@ -149,13 +152,14 @@ def create_app(
             return _api_error("invalid_request", "Expected a JSON request body", 400)
         try:
             youtube_url = validate_youtube_url(payload.get("url"))
+            mode = validate_capture_mode(payload.get("mode"))
             requested_title = (
                 validate_title(payload["title"]) if "title" in payload else None
             )
         except (TypeError, ValueError) as error:
             return _api_error("invalid_request", str(error), 400)
 
-        job = manager.submit(youtube_url)
+        job = manager.submit(youtube_url, audio_only=mode == "audio")
         if requested_title:
             job = store.update(job["id"], title=requested_title, custom_title=True)
         response = jsonify({"download": _serialize_job(job, download_root)})
@@ -205,6 +209,18 @@ def create_app(
         except ValueError as error:
             return _api_error("invalid_state", str(error), 409)
         return jsonify({"download": _serialize_job(job, download_root)})
+
+    @app.post("/api/downloads/<uuid:job_id>/audio")
+    def create_audio_capture(job_id: Any) -> Response | tuple[Response, int]:
+        try:
+            variant = _create_audio_variant(store, manager, download_root, str(job_id))
+        except JobNotFound:
+            return _api_error("not_found", "Download not found", 404)
+        except ValueError as error:
+            return _api_error("invalid_state", str(error), 409)
+        response = jsonify({"download": _serialize_job(variant, download_root)})
+        response.headers["Location"] = url_for("get_download", job_id=variant["id"])
+        return response, 202
 
     @app.delete("/api/downloads/<uuid:job_id>/file")
     def delete_download_file(job_id: Any) -> Response | tuple[Response, int]:
@@ -314,6 +330,18 @@ def validate_youtube_url(raw_url: Any) -> str:
     return url
 
 
+def validate_capture_mode(raw_mode: Any) -> str:
+    """Return the requested capture mode, defaulting to a full video capture."""
+    if raw_mode is None:
+        return "video"
+    if not isinstance(raw_mode, str):
+        raise TypeError("Capture mode must be text")
+    mode = raw_mode.strip().lower()
+    if mode not in CAPTURE_MODES:
+        raise ValueError("Capture mode must be 'video' or 'audio'")
+    return mode
+
+
 def validate_title(raw_title: Any) -> str:
     if not isinstance(raw_title, str):
         raise TypeError("Title must be text")
@@ -388,6 +416,28 @@ def _delete_file(
     return store.update(job_id, file_deleted_at=utc_now())
 
 
+def _create_audio_variant(
+    store: DownloadStore,
+    manager: DownloadManager,
+    download_root: Path,
+    job_id: str,
+) -> dict[str, Any]:
+    """Queue an MP3 capture produced from a completed capture's stored media file."""
+    parent = store.get(job_id)
+    if parent.get("audio_only"):
+        raise ValueError("This capture is already an MP3 audio capture")
+    if parent.get("state") in ACTIVE_STATES:
+        raise ValueError(
+            "Wait for the video capture to finish before extracting an MP3"
+        )
+    for job in store.list():
+        if job.get("derived_from") == job_id:
+            return job
+    if parent.get("file_deleted_at") or _available_file(download_root, parent) is None:
+        raise ValueError("The video file is not available to extract an MP3 from")
+    return manager.submit(parent["url"], audio_only=True, derived_from=job_id)
+
+
 def _available_file(download_root: Path, job: dict[str, Any]) -> Path | None:
     if job.get("file_deleted_at"):
         return None
@@ -440,6 +490,8 @@ def _serialize_job(job: dict[str, Any], download_root: Path) -> dict[str, Any]:
         "id": job["id"],
         "url": job["url"],
         "title": job["title"],
+        "mode": "audio" if job.get("audio_only") else "video",
+        "derived_from": job.get("derived_from") or None,
         "source_title": job.get("source_title"),
         "thumbnail_url": job.get("thumbnail_url"),
         "state": job["state"],
