@@ -206,14 +206,20 @@ END_COMMIT_OVERRIDE
 
 ## Runtime dependencies
 
-`requirements.txt` pins the runtime set baked into the image. When a release
-cuts, its `CHANGELOG.md` entry names the versions that image contains.
+`requirements.txt` pins the runtime set used for local development.
+`requirements-docker.txt` holds the same pins for the container image, minus the
+`deno` extra: the image installs Deno from the Alpine package repository, because
+the PyPI `deno` wheel is glibc-only and cannot build on the image's musl base.
+When a release cuts, its `CHANGELOG.md` entry names the versions that image
+contains.
 
-| Package | Pinned version |
-| --- | --- |
-| `Flask` | 3.1.3 |
-| `gunicorn` | 26.2.0 |
-| `yt-dlp[default,deno]` | 2026.10.26 |
+| Package | Pinned version | In image |
+| --- | --- | --- |
+| `Flask` | 3.1.3 | yes |
+| `gunicorn` | 26.2.0 | yes |
+| `yt-dlp[default,deno]` | 2026.10.26 | yes (`[default]`; Deno from `apk`) |
+
+The image also installs `ffmpeg`, `tini`, and `deno` as Alpine packages.
 
 ## Local Python development
 
