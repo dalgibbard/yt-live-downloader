@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.2.3...yt-live-downloader-v1.3.0) (2026-10-28)
+
+
+### Features
+
+* add MP3 capture modes, audio extraction, and resume playback ([#19](https://github.com/dalgibbard/yt-live-downloader/issues/19)) ([17bc73f](https://github.com/dalgibbard/yt-live-downloader/commit/17bc73f9fcde5c0162af924c7653a8b1422f8206))
+
 ## [1.2.3](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.2.2...yt-live-downloader-v1.2.3) (2026-10-28)
 
 
