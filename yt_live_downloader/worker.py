@@ -5,8 +5,10 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
 import sqlite3
+import subprocess
 import threading
 import time
 from collections import OrderedDict
@@ -17,7 +19,12 @@ from typing import Any
 
 import yt_dlp
 
-from .filesystem import artifact_filename, move_artifact, unique_destination
+from .filesystem import (
+    artifact_filename,
+    move_artifact,
+    resolve_stored_path,
+    unique_destination,
+)
 from .storage import ACTIVE_STATES, DownloadStore, JobNotFound, utc_now
 
 LOGGER = logging.getLogger(__name__)
@@ -228,6 +235,50 @@ class ProgressReporter:
             force=True,
         )
 
+    def begin_extraction(self, total_bytes: int) -> None:
+        """Track a local MP3 extraction as one synthetic part."""
+        with self._lock:
+            self.parts.clear()
+            self.parts["extract"] = {
+                "key": "extract",
+                "kind": "audio",
+                "format_id": "mp3",
+                "state": "downloading",
+                "downloaded_bytes": 0,
+                "total_bytes": max(int(total_bytes), 1),
+                "speed_bps": None,
+                "eta_seconds": None,
+            }
+        self._write(
+            state="post_processing",
+            phase="extracting_audio",
+            detail="Extracting MP3 audio from the captured video",
+            force=True,
+        )
+
+    def report_extraction(
+        self,
+        *,
+        downloaded_bytes: int,
+        speed_bps: float | None,
+        eta_seconds: int | None,
+    ) -> None:
+        """Publish extraction progress through the same status writer as downloads."""
+        with self._lock:
+            part = self.parts.get("extract")
+            if part is None:
+                return
+            part["downloaded_bytes"] = max(
+                int(part.get("downloaded_bytes") or 0), int(downloaded_bytes)
+            )
+            part["speed_bps"] = speed_bps
+            part["eta_seconds"] = eta_seconds
+            self._flush_locked(
+                state="post_processing",
+                phase="extracting_audio",
+                detail="Extracting MP3 audio from the captured video",
+            )
+
     def mark_finalizing(self) -> None:
         with self._lock:
             for part in self.parts.values():
@@ -366,9 +417,14 @@ class YtDlpLogger:
         LOGGER.error("yt-dlp: %s", clean)
 
 
-def _ydl_options(staging: Path, reporter: ProgressReporter) -> dict[str, Any]:
+def _ydl_options(
+    staging: Path,
+    reporter: ProgressReporter,
+    *,
+    audio_only: bool = False,
+) -> dict[str, Any]:
     fragments = _integer(os.environ.get("YTDLP_CONCURRENT_FRAGMENTS")) or 4
-    return {
+    options: dict[str, Any] = {
         "format": "bv*+ba/b",
         "outtmpl": str(staging / "%(id)s.%(ext)s"),
         "paths": {"home": str(staging), "temp": str(staging)},
@@ -387,6 +443,245 @@ def _ydl_options(staging: Path, reporter: ProgressReporter) -> dict[str, Any]:
         "quiet": True,
         "no_warnings": False,
     }
+    if audio_only:
+        # Best audio only, then transcode to MP3. `preferredquality` 0 is LAME's
+        # highest variable bitrate, which keeps livestream audio transparent.
+        options["format"] = "ba/b"
+        options.pop("merge_output_format")
+        options["postprocessors"] = [
+            {
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "0",
+            }
+        ]
+    return options
+
+
+MP3_SUFFIX = ".mp3"
+_EXTRACTION_REPORT_INTERVAL = 0.5
+_KEY_VALUE_LINE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def _tool_executable(name: str) -> str | None:
+    """Resolve an FFmpeg tool the way yt-dlp does, falling back to PATH."""
+    lookup = getattr(yt_dlp.utils, f"which_{name}", None)
+    if callable(lookup):
+        resolved = lookup()
+        if resolved:
+            return str(resolved)
+    resolved = shutil.which(name)
+    return str(resolved) if resolved else None
+
+
+def _file_size(path: Path) -> int:
+    try:
+        return int(path.stat().st_size)
+    except OSError:
+        return 0
+
+
+def _clock_seconds(value: str) -> float | None:
+    text = str(value).strip()
+    if not text:
+        return None
+    if ":" in text:
+        total = 0.0
+        for component in text.split(":"):
+            part = _number(component)
+            if part is None:
+                return None
+            total = total * 60 + part
+        return total
+    return _number(text)
+
+
+def _progress_seconds(line: str) -> float | None:
+    """Read FFmpeg's `-progress` timestamps, which arrive as microseconds."""
+    key, _, value = line.strip().partition("=")
+    if key == "out_time":
+        return _clock_seconds(value)
+    if key in {"out_time_us", "out_time_ms"}:
+        microseconds = _number(value)
+        return None if microseconds is None else microseconds / 1_000_000.0
+    return None
+
+
+def _probe_media(path: Path) -> tuple[float | None, bool]:
+    """Return (duration_seconds, has_audio) for a stored media file.
+
+    Probing is best effort: a missing or failing ffprobe assumes audio is present
+    so a capture is never blocked by the probe itself.
+    """
+    ffprobe = _tool_executable("ffprobe")
+    if ffprobe is None:
+        return None, True
+    command = [
+        ffprobe,
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=codec_type:format=duration",
+        "-of",
+        "default=noprint_wrappers=1",
+        str(path),
+    ]
+    try:
+        completed = subprocess.run(  # noqa: S603
+            command, capture_output=True, text=True, timeout=120, check=False
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        LOGGER.warning("Could not probe media file %s", path.name)
+        return None, True
+    duration: float | None = None
+    has_audio = False
+    for line in completed.stdout.splitlines():
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key == "codec_type" and value.strip() == "audio":
+            has_audio = True
+        elif key == "duration":
+            parsed = _number(value)
+            if parsed is not None and parsed > 0:
+                duration = parsed
+    if completed.returncode != 0:
+        LOGGER.warning(
+            "Media probe for %s exited with code %s: %s",
+            path.name,
+            completed.returncode,
+            _clean_message(completed.stderr, 400),
+        )
+        return duration, True
+    return duration, has_audio
+
+
+def _ffmpeg_extract_command(ffmpeg: str, source: Path, destination: Path) -> list[str]:
+    return [
+        ffmpeg,
+        "-hide_banner",
+        "-nostdin",
+        "-loglevel",
+        "error",
+        "-nostats",
+        "-progress",
+        "pipe:2",
+        "-i",
+        str(source),
+        "-vn",
+        "-map",
+        "0:a:0",
+        "-c:a",
+        "libmp3lame",
+        "-q:a",
+        "0",
+        "-y",
+        str(destination),
+    ]
+
+
+def _extract_audio_variant(
+    store: DownloadStore,
+    job: dict[str, Any],
+    attempt: int,
+    reporter: ProgressReporter,
+    staging: Path,
+) -> Path:
+    """Turn a completed video capture into a standalone MP3 capture with FFmpeg."""
+    parent_id = str(job.get("derived_from") or "")
+    try:
+        parent = store.get(parent_id)
+    except JobNotFound as error:
+        raise WorkerFailure(
+            "The video capture this MP3 was requested from no longer exists"
+        ) from error
+    source = resolve_stored_path(store.download_root, parent.get("file_path"))
+    if parent.get("file_deleted_at") or source is None or not source.is_file():
+        raise WorkerFailure("The video file is not available to extract an MP3 from")
+    ffmpeg = _tool_executable("ffmpeg")
+    if ffmpeg is None:
+        raise WorkerFailure("FFmpeg is required to extract MP3 audio")
+
+    duration, has_audio = _probe_media(source)
+    if not has_audio:
+        raise WorkerFailure("The video file does not contain an audio track")
+
+    source_title = (
+        _clean_message(parent.get("source_title") or parent.get("title"), 500)
+        or "Untitled stream"
+    )
+    if (
+        store.update_source_metadata(
+            job["id"],
+            attempt,
+            source_title=source_title,
+            source_id=parent.get("source_id"),
+            thumbnail_url=parent.get("thumbnail_url"),
+            detail="Extracting MP3 audio from the video capture",
+        )
+        is None
+    ):
+        raise AttemptSuperseded("Download attempt is no longer current")
+
+    destination = staging / f"audio{MP3_SUFFIX}"
+    total_bytes = max(_file_size(source), 1)
+    reporter.begin_extraction(total_bytes)
+
+    process = subprocess.Popen(  # noqa: S603
+        _ffmpeg_extract_command(ffmpeg, source, destination),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    problems: list[str] = []
+    last_report = time.monotonic()
+    last_bytes = 0
+    try:
+        progress_lines = process.stderr
+        if progress_lines is None:
+            raise WorkerFailure("FFmpeg did not report extraction progress")
+        for line in progress_lines:
+            elapsed = _progress_seconds(line)
+            if elapsed is not None:
+                if duration:
+                    fraction = min(max(elapsed / duration, 0.0), 1.0)
+                    done = int(total_bytes * fraction)
+                else:
+                    done = min(_file_size(destination), total_bytes)
+                now = time.monotonic()
+                window = now - last_report
+                if window >= _EXTRACTION_REPORT_INTERVAL:
+                    speed = (done - last_bytes) / window
+                    eta = int((total_bytes - done) / speed) if speed > 0 else None
+                    reporter.report_extraction(
+                        downloaded_bytes=done,
+                        speed_bps=speed,
+                        eta_seconds=eta,
+                    )
+                    last_report = now
+                    last_bytes = done
+                continue
+            if not _KEY_VALUE_LINE.match(line.strip()):
+                message = _clean_message(line, 300)
+                if message:
+                    problems.append(message)
+        returncode = process.wait(timeout=60)
+    finally:
+        if process.poll() is None:
+            process.terminate()
+            with suppress(subprocess.TimeoutExpired):
+                process.wait(timeout=5)
+    if returncode != 0:
+        reason = " ".join(problems[-3:]).strip()
+        summary = _classify_failure(reason) or "FFmpeg could not extract the MP3 audio"
+        raise WorkerFailure(f"{summary}: {reason}" if reason else summary)
+    if _file_size(destination) <= 0:
+        raise WorkerFailure("FFmpeg produced an empty MP3 file")
+    reporter.report_extraction(
+        downloaded_bytes=total_bytes, speed_bps=None, eta_seconds=None
+    )
+    return destination
 
 
 def _single_video(info: Any) -> dict[str, Any]:
@@ -577,17 +872,101 @@ def _finalize(
         connection.close()
 
 
+# Raw extractor/ffmpeg messages mapped onto summaries a person can act on. The
+# original message stays in `error_detail` so nothing is lost.
+_FAILURE_HINTS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (
+        (
+            "no video formats found",
+            "no formats found",
+            "requested format is not available",
+        ),
+        "YouTube did not offer a format that can be downloaded",
+    ),
+    (
+        (
+            "this video is unavailable",
+            "video is unavailable",
+            "no longer available",
+            "has been removed",
+            "removed from youtube",
+            "account holding this video",
+        ),
+        "This video is no longer available on YouTube",
+    ),
+    (("this video is private", "private video"), "This video is private"),
+    (
+        ("members-only", "members only", "channel membership"),
+        "This video is members-only",
+    ),
+    (("age-restricted", "confirm your age"), "This video is age-restricted"),
+    (
+        ("not a bot", "sign in to confirm"),
+        "YouTube asked for a sign-in before it would serve this video",
+    ),
+    (("premiere",), "This video has not premiered yet"),
+    (
+        (
+            "blocked because of licensing",
+            "not available in your country",
+            "not available in your region",
+        ),
+        "This video is not available in your region",
+    ),
+    (("http error 404",), "YouTube could not find this video"),
+    (("http error 410",), "YouTube says this video has been removed"),
+    (("http error 403",), "YouTube rejected the request"),
+    (("http error 429",), "YouTube is rate limiting these requests"),
+    (
+        (
+            "getaddrinfo failed",
+            "name or service not known",
+            "temporary failure in name resolution",
+            "unable to connect",
+            "connection reset",
+            "connection refused",
+            "timed out",
+            "network is unreachable",
+        ),
+        "YouTube could not be reached",
+    ),
+    (
+        ("does not contain any stream", "no audio track", "invalid audio stream"),
+        "The media file does not contain an audio track",
+    ),
+    (
+        ("invalid data found when processing input", "moov atom not found"),
+        "The stored media file looks damaged",
+    ),
+)
+
+
+def _classify_failure(message: Any) -> str | None:
+    """Turn a raw extractor or FFmpeg message into a human-readable summary."""
+    lowered = _clean_message(message).lower()
+    if not lowered:
+        return None
+    for needles, summary in _FAILURE_HINTS:
+        if any(needle in lowered for needle in needles):
+            return summary
+    return None
+
+
 def _failure_details(error: Exception, reporter: ProgressReporter) -> tuple[str, str]:
     detail = reporter.last_error or _clean_message(error)
+    classified = _classify_failure(detail) or _classify_failure(error)
     if isinstance(error, WorkerFailure):
         return str(error), detail
-    if isinstance(error, yt_dlp.utils.DownloadError):
-        return "The stream could not be downloaded", detail
+    if isinstance(error, (yt_dlp.utils.DownloadError, yt_dlp.utils.ExtractorError)):
+        return classified or "The stream could not be downloaded", detail
     if isinstance(error, FileNotFoundError):
         return "A required download tool is missing", detail
     if isinstance(error, OSError) and getattr(error, "errno", None) == 28:
         return "The download storage is full", detail
-    return "The download failed unexpectedly", detail or error.__class__.__name__
+    return (
+        classified or "The download failed unexpectedly",
+        detail or error.__class__.__name__,
+    )
 
 
 def run_worker(download_root: Path | str, job_id: str, attempt: int) -> int:
@@ -617,7 +996,18 @@ def run_worker(download_root: Path | str, job_id: str, attempt: int) -> int:
 
         staging = store.download_root / ".staging" / job_id
         staging.mkdir(parents=True, exist_ok=True)
-        options = _ydl_options(staging, reporter)
+
+        if job.get("derived_from"):
+            # An MP3 capture extracted from a completed video capture: nothing is
+            # fetched from YouTube, FFmpeg re-reads the stored media file instead.
+            source = _extract_audio_variant(store, job, attempt, reporter, staging)
+            reporter.mark_finalizing()
+            _finalize(store, job_id, attempt, source, reporter.snapshot())
+            return 0
+
+        options = _ydl_options(
+            staging, reporter, audio_only=bool(job.get("audio_only"))
+        )
         inspect_options = dict(options, ignore_no_formats_error=True)
         with yt_dlp.YoutubeDL(inspect_options) as ydl:
             info = _single_video(ydl.extract_info(job["url"], download=False))

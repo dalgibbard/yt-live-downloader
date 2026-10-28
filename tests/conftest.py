@@ -23,8 +23,14 @@ class FakeManager:
     def tick(self) -> None:
         return None
 
-    def submit(self, url: str) -> dict[str, Any]:
-        return self.store.create(url)
+    def submit(
+        self,
+        url: str,
+        *,
+        audio_only: bool = False,
+        derived_from: str | None = None,
+    ) -> dict[str, Any]:
+        return self.store.create(url, audio_only=audio_only, derived_from=derived_from)
 
     def cancel(self, job_id: str) -> dict[str, Any]:
         job = self.store.get(job_id)

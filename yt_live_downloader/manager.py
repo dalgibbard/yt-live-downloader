@@ -71,11 +71,19 @@ class DownloadManager:
             )
             self._thread.start()
 
-    def submit(self, url: str) -> dict[str, Any]:
+    def submit(
+        self,
+        url: str,
+        *,
+        audio_only: bool = False,
+        derived_from: str | None = None,
+    ) -> dict[str, Any]:
         with self._lock:
             if self._stopping:
                 raise RuntimeError("Download manager is stopping")
-            job = self.store.create(url)
+            job = self.store.create(
+                url, audio_only=audio_only, derived_from=derived_from
+            )
             self.tick()
             return self.store.get(job["id"])
 

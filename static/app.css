@@ -431,6 +431,190 @@ input[aria-invalid="true"] {
     flex: 0 0 auto;
 }
 
+/* Split button: the primary action plus a menu that picks what gets captured. */
+.capture-submit-group {
+    position: relative;
+    display: flex;
+    flex: 0 0 auto;
+}
+
+.capture-submit-group .capture-submit {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.capture-mode-toggle {
+    min-width: 46px;
+    min-height: 48px;
+    padding-inline: 12px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left-color: color-mix(in srgb, var(--on-primary) 34%, transparent);
+}
+
+.capture-mode-toggle svg {
+    width: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 2;
+}
+
+.capture-mode-menu {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 8px);
+    right: 0;
+    display: grid;
+    min-width: 244px;
+    padding: 6px;
+    gap: 4px;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+}
+
+.capture-mode-option {
+    display: grid;
+    padding: 9px 11px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.capture-mode-option:hover {
+    background: var(--surface-hover);
+}
+
+.capture-mode-option:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.capture-mode-option.is-selected {
+    border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
+    background: var(--primary-soft);
+}
+
+.capture-mode-option-label {
+    color: var(--text-strong);
+    font-size: 0.85rem;
+    font-weight: 720;
+}
+
+.capture-mode-option.is-selected .capture-mode-option-label::after {
+    content: "✓";
+    margin-left: 8px;
+    color: var(--primary);
+}
+
+.capture-mode-option-detail {
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.download-group {
+    position: relative;
+    display: flex;
+    flex: 0 0 auto;
+}
+
+.download-group .action-download {
+    border-top-right-radius: 0;
+    border-bottom-right-radius: 0;
+}
+
+.download-mode-toggle {
+    min-width: 34px;
+    padding-inline: 8px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+    border-left-color: var(--border-strong);
+}
+
+.download-mode-toggle svg {
+    width: 15px;
+    height: 15px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.download-mode-toggle[aria-expanded="true"] {
+    background: var(--surface-hover);
+}
+
+.download-mode-menu {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 8px);
+    left: 0;
+    display: grid;
+    min-width: 232px;
+    padding: 6px;
+    gap: 4px;
+    border: 1px solid var(--border-strong);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+}
+
+.download-mode-option {
+    display: grid;
+    padding: 9px 11px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.download-mode-option:hover:not(:disabled) {
+    background: var(--surface-hover);
+}
+
+.download-mode-option:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.download-mode-option:disabled {
+    cursor: default;
+    opacity: 0.62;
+}
+
+.download-mode-option-label {
+    color: var(--text-strong);
+    font-size: 0.85rem;
+    font-weight: 720;
+}
+
+.download-mode-option-detail {
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 0.75rem;
+}
+
+.capture-mode-status {
+    margin: 8px 0 0;
+    color: var(--muted-strong);
+    font-size: 0.78rem;
+    font-weight: 650;
+}
+
+.capture-mode-status.is-audio {
+    color: var(--primary);
+}
+
 .button-spinner,
 .loading-spinner {
     width: 16px;
@@ -703,6 +887,110 @@ input[aria-invalid="true"] {
     stroke-width: 1.5;
 }
 
+.thumbnail-shell.is-playable {
+    border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+}
+
+.thumbnail-shell.is-playable:hover {
+    border-color: var(--primary);
+    box-shadow: var(--shadow-md);
+}
+
+.thumbnail-play {
+    position: relative;
+    display: block;
+    width: 100%;
+    height: 100%;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    border-radius: inherit;
+    background: none;
+    color: inherit;
+    cursor: pointer;
+}
+
+.thumbnail-play:disabled {
+    cursor: default;
+    opacity: 0.6;
+}
+
+.thumbnail-shell:not(.is-playable) .thumbnail-play {
+    cursor: default;
+}
+
+.thumbnail-scrim {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    background:
+        radial-gradient(circle at center, rgb(2 8 20 / 0.5), rgb(2 8 20 / 0.12) 68%, rgb(2 8 20 / 0.42));
+    transition: opacity 140ms ease;
+}
+
+.thumbnail-play-icon {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    opacity: 0;
+    place-items: center;
+    transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.thumbnail-play-icon svg {
+    width: 42%;
+    max-width: 46px;
+    fill: var(--on-primary);
+    stroke: rgb(8 15 30 / 0.45);
+    stroke-width: 0.75;
+    filter: drop-shadow(0 4px 14px rgb(2 8 20 / 0.55));
+    transform: scale(0.9);
+    transition: transform 140ms ease;
+}
+
+.thumbnail-shell.is-playable:hover .thumbnail-scrim,
+.thumbnail-shell.is-playable:hover .thumbnail-play-icon,
+.thumbnail-play:focus-visible .thumbnail-scrim,
+.thumbnail-play:focus-visible .thumbnail-play-icon {
+    opacity: 1;
+}
+
+.thumbnail-shell.is-playable:hover .thumbnail-play-icon svg,
+.thumbnail-play:focus-visible .thumbnail-play-icon svg {
+    transform: scale(1);
+}
+
+.thumbnail-resume {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: var(--primary);
+}
+
+/* Touch devices have no hover: keep the play affordance visible. */
+@media (hover: none) {
+    .thumbnail-shell.is-playable .thumbnail-scrim {
+        opacity: 1;
+    }
+
+    .thumbnail-shell.is-playable .thumbnail-play-icon {
+        opacity: 0.92;
+    }
+
+    .thumbnail-shell.is-playable .thumbnail-play-icon svg {
+        transform: scale(1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .thumbnail-scrim,
+    .thumbnail-play-icon,
+    .thumbnail-play-icon svg {
+        transition: none;
+    }
+}
+
 .stream-copy {
     min-width: 0;
 }
@@ -952,6 +1240,18 @@ input[aria-invalid="true"] {
     color: var(--muted-strong);
 }
 
+.file-column > .capture-kind {
+    display: inline-block;
+    max-width: 100%;
+    margin-top: 7px;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: var(--primary-soft);
+    color: var(--primary);
+    font-size: 0.7rem;
+    font-weight: 720;
+}
+
 .file-name {
     margin-top: 8px;
     overflow: hidden;
@@ -1027,6 +1327,33 @@ input[aria-invalid="true"] {
     background: var(--warning-soft);
     color: var(--warning);
     font-size: 0.82rem;
+}
+
+.resume-banner {
+    display: flex;
+    margin-top: 13px;
+    padding: 10px 12px;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 10px 16px;
+    border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border));
+    border-radius: var(--radius-sm);
+    background: var(--primary-soft);
+    color: var(--text);
+    font-size: 0.8rem;
+}
+
+.resume-text {
+    min-width: 0;
+    flex: 1 1 220px;
+    overflow-wrap: anywhere;
+}
+
+.resume-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
 }
 
 .playback-footer {
@@ -1245,6 +1572,10 @@ input[aria-invalid="true"] {
     .thumbnail-shell {
         width: 100px;
     }
+
+    .thumbnail-play-icon svg {
+        width: 46%;
+    }
 }
 
 @media (max-width: 760px) {
@@ -1404,6 +1735,18 @@ input[aria-invalid="true"] {
         width: 100%;
     }
 
+    .capture-submit-group {
+        width: 100%;
+    }
+
+    .capture-submit-group .capture-submit {
+        flex: 1 1 auto;
+    }
+
+    .capture-mode-menu {
+        min-width: min(268px, 100%);
+    }
+
     .refresh-button {
         min-width: 42px;
         padding-inline: 11px;
@@ -1420,6 +1763,19 @@ input[aria-invalid="true"] {
 
     .thumbnail-shell {
         width: 94px;
+    }
+
+    .thumbnail-play-icon svg {
+        width: 52%;
+    }
+
+    .resume-banner {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .resume-actions {
+        gap: 10px;
     }
 
     .connection-banner {

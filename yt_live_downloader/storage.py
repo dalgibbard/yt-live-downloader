@@ -37,13 +37,21 @@ class DownloadStore:
     """
 
     _JSON_FIELDS = frozenset({"parts"})
-    _BOOL_FIELDS = frozenset({"custom_title"})
+    # Columns added since the first released schema; applied to existing databases.
+    # `derived_from` records the capture whose media file produced this capture.
+    _ADDED_COLUMNS = (
+        ("audio_only", "INTEGER NOT NULL DEFAULT 0"),
+        ("derived_from", "TEXT"),
+    )
+    _BOOL_FIELDS = frozenset({"custom_title", "audio_only"})
     _UPDATABLE_FIELDS = frozenset(
         {
             "url",
             "title",
             "source_title",
             "custom_title",
+            "audio_only",
+            "derived_from",
             "source_id",
             "thumbnail_url",
             "state",
@@ -83,6 +91,7 @@ class DownloadStore:
             self._connection.execute("PRAGMA foreign_keys=ON")
             self._connection.execute("PRAGMA busy_timeout=10000")
             self._create_schema()
+            self._add_missing_columns()
             self._migrate_legacy_json()
 
     def _create_schema(self) -> None:
@@ -94,6 +103,7 @@ class DownloadStore:
                 title TEXT NOT NULL,
                 source_title TEXT,
                 custom_title INTEGER NOT NULL DEFAULT 0,
+                audio_only INTEGER NOT NULL DEFAULT 0,
                 source_id TEXT,
                 thumbnail_url TEXT,
                 state TEXT NOT NULL,
@@ -133,7 +143,26 @@ class DownloadStore:
             """
         )
 
-    def create(self, url: str) -> dict[str, Any]:
+    def _add_missing_columns(self) -> None:
+        """Add columns introduced after the first released schema."""
+        existing = {
+            str(row[1])
+            for row in self._connection.execute("PRAGMA table_info(downloads)")
+        }
+        for name, definition in self._ADDED_COLUMNS:
+            if name not in existing:
+                # Column names and definitions are module constants, never user input.
+                self._connection.execute(
+                    f"ALTER TABLE downloads ADD COLUMN {name} {definition}"
+                )
+
+    def create(
+        self,
+        url: str,
+        *,
+        audio_only: bool = False,
+        derived_from: str | None = None,
+    ) -> dict[str, Any]:
         now = utc_now()
         job = {
             "id": str(uuid.uuid4()),
@@ -141,6 +170,8 @@ class DownloadStore:
             "title": "Inspecting stream…",
             "source_title": None,
             "custom_title": False,
+            "audio_only": bool(audio_only),
+            "derived_from": derived_from,
             "source_id": None,
             "thumbnail_url": None,
             "state": "queued",

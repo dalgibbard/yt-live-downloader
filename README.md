@@ -13,6 +13,8 @@ disk.
 ## Features
 
 - Capture live and scheduled streams with yt-dlp's live-from-start support.
+- Choose between a normal video capture and an MP3 audio-only capture when adding
+  a link.
 - Read the source title and thumbnail automatically.
 - Track video, audio, merging, speed, size, and ETA without progress jumping
   between separate media parts.
@@ -21,8 +23,16 @@ disk.
 - Show download failures and allow failed, cancelled, or interrupted jobs to be
   retried.
 - Rename a download; completed files are renamed safely on disk as well.
-- Play completed videos in the browser, or download or delete a media file
-  independently of its history entry.
+- Play completed videos and MP3 captures in the browser from the row action or by
+  clicking the card thumbnail, or download or delete a media file independently of
+  its history entry.
+- Turn a completed video capture into an MP3 capture from the Download button's
+  menu: ffmpeg re-reads the stored file, so nothing is fetched from YouTube again.
+- Remember where browser playback stopped and offer to resume that file from the
+  same position next time.
+- Report common failures in plain language — unavailable, private, members-only,
+  age-restricted, region-blocked, sign-in walls, missing formats, network and
+  storage problems — while keeping the raw extractor message alongside them.
 - Detect files removed outside the application and report them as missing.
 - Optionally protect the UI and API with HTTP Basic authentication.
 
@@ -219,7 +229,9 @@ contains.
 | `gunicorn` | 26.2.0 | yes |
 | `yt-dlp[default,deno]` | 2026.10.26 | yes (`[default]`; Deno from `apk`) |
 
-The image also installs `ffmpeg`, `tini`, and `deno` as Alpine packages.
+The image also installs `ffmpeg`, `tini`, and `deno` as Alpine packages. Audio-only
+captures rely on ffmpeg's `libmp3lame` encoder, which the Alpine `ffmpeg` package
+provides.
 
 ## Local Python development
 
@@ -292,6 +304,54 @@ outside the coordinator, so Python's GIL is not the current throughput limit.
 Revisiting Go would make sense if measurements show the coordinator itself is a
 bottleneck or the application needs multi-host scheduling.
 
+## Capture modes
+
+Each download records how it was captured, chosen next to the **Start capture**
+button:
+
+| Mode | Worker behaviour | Final file |
+| --- | --- | --- |
+| `video` (default) | Best video and audio merged into one container. | `.mp4` or `.mkv` |
+| `audio` | Best audio stream only, transcoded to MP3. | `.mp3` |
+
+The choice is stored per job and returned as `mode` on `/api/downloads`;
+`POST /api/downloads` accepts `{"url": "...", "mode": "audio"}`. Audio-only jobs
+are labelled `MP3 audio only` in the list and play in the browser like any other
+completed file. Existing databases gain the column automatically on startup, so
+older jobs keep the `video` mode they were captured with.
+
+### Extracting an MP3 from a captured video
+
+A completed **video** capture can produce an MP3 without re-downloading anything.
+The Download button on a video row splits into a menu with *Download the captured
+file* and either *MP3 audio only* (extract one now) or *Download the MP3 capture*
+(when one already exists). Choosing *MP3 audio only* calls
+`POST /api/downloads/<id>/audio`, which queues a second capture marked
+`audio_only` and records the parent job in `derived_from`. The worker skips
+yt-dlp entirely for those jobs and runs ffmpeg against the stored media file,
+reporting extraction progress as a single audio part.
+
+Extraction is idempotent: a second request for the same parent returns the
+capture that already exists rather than queueing another one. It is refused with
+`409` when the parent capture is still running, when it is already an audio
+capture, or when its file is missing or deleted. The derived MP3 is an ordinary
+capture afterwards — its own row, its own download, delete, rename, playback, and
+resume state, and deleting the parent's video file leaves it in place.
+
+## Playback and resume
+
+The player opens from the row's **Play** action or by clicking the card thumbnail,
+which gains a play overlay on hover or focus. Only formats the browser can decode
+inline are offered playback.
+
+Each browser remembers its own last position per job in local storage, saved while
+playing and when the dialog closes. Reopening an available file resumes from that
+position, shows a short banner saying where it resumed, and marks the card
+thumbnail with the watched fraction. A position is forgotten when the file ends,
+when it is close to the end, or when the media file or history entry is deleted.
+Resume state is per browser and device; it is never stored on the server or shared
+between them.
+
 ## Download and file states
 
 Download state describes the job:
@@ -317,6 +377,21 @@ File state is tracked separately:
 | `missing` | A recorded path no longer exists, usually because the file was removed outside the application. |
 | `deleted` | The file was deliberately deleted through the Web UI. |
 | `unavailable` | The job has no usable final file, commonly after a failure or cancellation. |
+
+### Failure messages
+
+A failed job stores two strings: `error_summary`, shown in the row and the
+failure toast, and `error_detail`, the raw extractor or ffmpeg message kept for
+diagnosis and rendered under the summary. yt-dlp wording is mapped onto something
+actionable — "This video is no longer available on YouTube", "This video is
+private", "This video is members-only", "This video is age-restricted", "YouTube
+asked for a sign-in before it would serve this video", "This video is not
+available in your region", "YouTube did not offer a format that can be
+downloaded", "YouTube is rate limiting these requests", "YouTube could not be
+reached", "A required download tool is missing", "The download storage is full" —
+and anything unrecognised falls back to a generic summary rather than the
+previous blanket "The download failed unexpectedly". Mapping never rewrites the
+detail, so the original message is always recoverable.
 
 ## Actions and data ownership
 
