@@ -10,9 +10,10 @@ import sqlite3
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import yt_dlp
 
