@@ -4,7 +4,7 @@
 # Debian base pulled in ~200 extra OS packages and ~890 known CVEs (Trivy scan).
 # Alpine's ffmpeg is musl-based and much smaller — same codecs and containers,
 # ~8 known CVEs in the final image and roughly half the image size.
-FROM python:3.13.18-alpine3.24
+FROM python:3.15.0-alpine3.24
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
