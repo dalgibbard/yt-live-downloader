@@ -122,7 +122,10 @@ jobs:
       # never fails the build, it just records the OS/Python vulnerability
       # surface of each published image in the job log.
       - name: Scan published image for CVEs
-        uses: aquasecurity/trivy-action@0.28.0
+        # aquasecurity/trivy-action tags its releases with a leading "v" (v0.36.0),
+        # so an unprefixed version like "0.28.0" cannot be resolved and the whole
+        # job dies at "Set up job". Pinned to the commit SHA for supply-chain safety.
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: ${{ vars.DOCKERHUB_IMAGE }}:latest
           format: table
