@@ -6,5 +6,18 @@
       "package-name": "yt-live-downloader",
       "initial-version": "1.0.0"
     }
-  }
+  },
+  "always-update": true,
+  "changelog-sections": [
+    { "type": "feat", "section": "Features", "hidden": false },
+    { "type": "fix", "section": "Bug Fixes", "hidden": false },
+    { "type": "perf", "section": "Performance Improvements", "hidden": false },
+    { "type": "deps", "section": "Dependencies", "hidden": false },
+    { "type": "chore", "section": "Dependencies & Maintenance", "hidden": false },
+    { "type": "build", "section": "Build & Packaging", "hidden": false },
+    { "type": "revert", "section": "Reverts", "hidden": false },
+    { "type": "docs", "section": "Documentation", "hidden": true },
+    { "type": "style", "section": "Styles", "hidden": true },
+    { "type": "test", "section": "Tests", "hidden": true }
+  ]
 }

@@ -122,6 +122,13 @@ image and pushes these tags to Docker Hub:
 - the semantic version with and without a `v` prefix, such as `1.2.0` and
   `v1.2.0`, when that push creates a GitHub Release.
 
+Every commit merged to `main` that passes the tests builds a new image, so each
+image is also expected to carry a version. `release-please-config.json` therefore
+lists `chore`, `deps` and `build` as release-producing commit types alongside
+`fix`, `feat`, `perf` and `revert`, so dependency bumps and packaging changes cut
+a patch release instead of publishing an unversioned image. `docs`, `style` and
+`test` stay hidden from the changelog.
+
 The same test and Ruff checks run when a pull request targeting `main` is opened
 as non-draft or marked ready for review. They rerun after subsequent commits or
 when the pull request is reopened. Draft pull requests skip the checks, and pull
@@ -177,6 +184,36 @@ job-level permissions, an organisation administrator must allow them.
 Users can receive release notifications by selecting **Watch > Custom >
 Releases** on the GitHub repository page. The generated changelog is included in
 each GitHub Release.
+
+### Forcing a release or retyping a merged commit
+
+A merge that release-please considers non-releasable still builds and publishes
+an image, so it needs a manual nudge to also produce a version. Both options are
+documented release-please features:
+
+- Put `Release-As: 1.2.1` in the commit body of a commit pushed to `main`. The
+  next `main` workflow cuts exactly that version regardless of commit type, and
+  the footer is read once, so it does not pin future releases.
+- Add a `BEGIN_COMMIT_OVERRIDE` block to the body of an already merged
+  squash-merged pull request to change the message release-please uses for the
+  changelog:
+
+```text
+BEGIN_COMMIT_OVERRIDE
+chore(deps): bump gunicorn, yt-dlp, pytest and ruff
+END_COMMIT_OVERRIDE
+```
+
+## Runtime dependencies
+
+`requirements.txt` pins the runtime set baked into the image. When a release
+cuts, its `CHANGELOG.md` entry names the versions that image contains.
+
+| Package | Pinned version |
+| --- | --- |
+| `Flask` | 3.1.3 |
+| `gunicorn` | 26.2.0 |
+| `yt-dlp[default,deno]` | 2026.10.26 |
 
 ## Local Python development
 
