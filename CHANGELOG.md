@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.2.0...yt-live-downloader-v1.2.1) (2026-10-28)
+
+
+### Dependencies & Maintenance
+
+* **deps:** bump gunicorn, yt-dlp, pytest and ruff to latest ([868d910](https://github.com/dalgibbard/yt-live-downloader/commit/868d91069cfadccea0ed694206d24ec972382055))
+
 ## [1.2.0](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.1.0...yt-live-downloader-v1.2.0) (2026-08-22)
 
 
