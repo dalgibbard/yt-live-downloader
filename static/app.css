@@ -556,7 +556,8 @@ input[aria-invalid="true"] {
     position: absolute;
     z-index: 30;
     top: calc(100% + 8px);
-    left: 0;
+    left: auto;
+    right: 0;
     display: grid;
     min-width: 232px;
     padding: 6px;
@@ -1693,6 +1694,12 @@ input[aria-invalid="true"] {
 
     .row-actions {
         justify-content: flex-start;
+    }
+
+    .download-mode-menu {
+        left: 0;
+        right: auto;
+        min-width: min(232px, 100vw - 44px);
     }
 
     .button-small {
