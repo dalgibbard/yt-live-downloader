@@ -3,7 +3,7 @@
 # Alpine (musl) base instead of Debian slim: `apt-get install ffmpeg tini` on the
 # Debian base pulled in ~200 extra OS packages and ~890 known CVEs (Trivy scan).
 # Alpine's ffmpeg is musl-based and much smaller — same codecs and containers,
-FROM python:3.15.2-alpine3.24
+FROM python:3.16.0a1-alpine3.24
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
