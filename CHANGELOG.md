@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.3.2](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.3.1...yt-live-downloader-v1.3.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* keep live jobs incomplete until the broadcast actually ends ([#24](https://github.com/dalgibbard/yt-live-downloader/issues/24)) ([9da7f44](https://github.com/dalgibbard/yt-live-downloader/commit/9da7f4412f65f922588dace17c27f0ca5af5ca0d))
+* right-align the Download options menu ([#22](https://github.com/dalgibbard/yt-live-downloader/issues/22)) ([541bfc5](https://github.com/dalgibbard/yt-live-downloader/commit/541bfc5a4174bb7eba8de2a8d7996aab86857104))
+
 ## [1.3.1](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.3.0...yt-live-downloader-v1.3.1) (2026-10-28)
 
 
