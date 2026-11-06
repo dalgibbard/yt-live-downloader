@@ -31,6 +31,15 @@ LOGGER = logging.getLogger(__name__)
 _ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 _SIDECAR_SUFFIXES = {".part", ".ytdl", ".json", ".jpg", ".jpeg", ".png", ".webp"}
 
+# Live guard budgets (see _guard_live_completion). yt-dlp's live fragment
+# generator can return while the broadcast is still running (yt-dlp #2898), so
+# a finished download loop never proves a live capture is complete.
+MAX_LIVE_CAPTURE_PASSES = 12  # full re-captures while the stream is still live
+MAX_LIVE_CATCHUP_PASSES = 2  # extra passes to recover a missed stream ending
+LIVE_REQUEUE_DELAY_SECONDS = 15
+LIVE_CATCHUP_DELAY_SECONDS = 5
+LIVE_TAIL_SLACK_SECONDS = 120  # a finished stream counts as captured within this margin
+
 
 class AttemptSuperseded(RuntimeError):
     """Raised when a worker no longer owns the current job attempt."""
@@ -775,6 +784,120 @@ def _candidate_artifact(staging: Path, reporter: ProgressReporter, info: Any) ->
     raise WorkerFailure("yt-dlp finished without producing a media file")
 
 
+def _capture_is_complete(source: Path, latest_info: dict[str, Any]) -> bool:
+    stream_duration = _number(latest_info.get("duration"))
+    if stream_duration is None:
+        # No known stream duration: err on the side of one more pass.
+        return False
+    file_duration, _has_audio = _probe_media(source)
+    if file_duration is None:
+        return False
+    return stream_duration - file_duration <= LIVE_TAIL_SLACK_SECONDS
+
+
+def _clear_capture_staging(staging: Path) -> None:
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True, exist_ok=True)
+
+
+def _wait_until_next_capture_pass(
+    store: DownloadStore, job_id: str, attempt: int, delay: float
+) -> None:
+    deadline = time.monotonic() + delay
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(2.0, remaining))
+        try:
+            job = store.get(job_id)
+        except JobNotFound as error:
+            raise AttemptSuperseded("Download attempt is no longer current") from error
+        if job["attempt"] != attempt or job["state"] not in ACTIVE_STATES:
+            raise AttemptSuperseded("Download attempt is no longer current")
+
+
+def _run_capture_pass(ydl: Any, info: Any, reporter: ProgressReporter) -> Any:
+    reporter.seed(info)
+    reporter.mark_downloading()
+    return ydl.process_ie_result(info, download=True)
+
+
+def _guard_live_completion(
+    store: DownloadStore,
+    job: dict[str, Any],
+    attempt: int,
+    reporter: ProgressReporter,
+    staging: Path,
+    ydl: Any,
+    result: Any,
+) -> Any:
+    """Refuse to complete a live capture that stopped before the broadcast did.
+
+    yt-dlp's live fragment generator can exit quietly while the stream is
+    still broadcasting (yt-dlp #2898: it gives up after ~30s of head stall,
+    failed HEAD polls, or a seqnum regression). A completed download loop is
+    therefore not evidence of a completed recording. After each pass the guard
+    re-checks the stream: while it is live it re-runs the full capture from the
+    start (DVR replay backfill + new tail), and when the stream just ended it
+    compares the captured duration against the stream duration and re-captures
+    once if the ending was missed. ``completed`` only ever means the whole
+    recording; a still-broadcasting stream after the pass budget fails the
+    attempt instead, so it stays retryable rather than falsely complete.
+    """
+    url = job["url"]
+    restarts = 0
+    catchups = 0
+    while True:
+        latest = _single_video(ydl.extract_info(url, download=False))
+        status = latest.get("live_status")
+        if status == "is_live":
+            if restarts >= MAX_LIVE_CAPTURE_PASSES:
+                raise WorkerFailure(
+                    "The stream was still broadcasting after "
+                    f"{restarts + 1} capture pass{'es' if restarts else ''}"
+                )
+            restarts += 1
+            LOGGER.info(
+                "Live download ended while the stream is still broadcasting; "
+                "restarting the full capture (pass %d)",
+                restarts + 1,
+            )
+            reporter.mark_waiting(
+                "Stream is still broadcasting — re-capturing from the start "
+                f"(pass {restarts + 1} of {MAX_LIVE_CAPTURE_PASSES + 1})"
+            )
+            _wait_until_next_capture_pass(
+                store, job["id"], attempt, LIVE_REQUEUE_DELAY_SECONDS
+            )
+            _clear_capture_staging(staging)
+            result = _run_capture_pass(ydl, latest, reporter)
+            continue
+        if status in {"post_live", "was_live", "not_live"} and (
+            catchups < MAX_LIVE_CATCHUP_PASSES
+        ):
+            source = _candidate_artifact(staging, reporter, result)
+            if not _capture_is_complete(source, latest):
+                catchups += 1
+                LOGGER.info(
+                    "Live capture of %s is missing the end of the stream; "
+                    "re-capturing (pass %d)",
+                    url,
+                    catchups + 1,
+                )
+                reporter.mark_waiting(
+                    "Stream ended before the capture reached its ending — "
+                    "re-capturing the full recording"
+                )
+                _wait_until_next_capture_pass(
+                    store, job["id"], attempt, LIVE_CATCHUP_DELAY_SECONDS
+                )
+                _clear_capture_staging(staging)
+                result = _run_capture_pass(ydl, latest, reporter)
+                continue
+        return result
+
+
 @contextmanager
 def _block_termination_signals() -> Iterator[None]:
     if not hasattr(signal, "pthread_sigmask"):
@@ -1018,6 +1141,10 @@ def run_worker(download_root: Path | str, job_id: str, attempt: int) -> int:
             else:
                 reporter.mark_downloading()
                 result = ydl.process_ie_result(info, download=True)
+                if info.get("live_status") == "is_live":
+                    result = _guard_live_completion(
+                        store, job, attempt, reporter, staging, ydl, result
+                    )
 
         if info.get("live_status") == "is_upcoming":
             reporter.mark_waiting()
@@ -1026,6 +1153,10 @@ def run_worker(download_root: Path | str, job_id: str, attempt: int) -> int:
                 result = ydl.extract_info(job["url"], download=True)
             latest = _single_video(result)
             _persist_metadata(store, job_id, attempt, latest)
+            if latest.get("live_status") == "is_live":
+                result = _guard_live_completion(
+                    store, job, attempt, reporter, staging, ydl, result
+                )
 
         reporter.mark_finalizing()
         source = _candidate_artifact(staging, reporter, result)

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import yt_dlp
 
+from yt_live_downloader import worker as worker_module
 from yt_live_downloader.manager import DownloadManager
 from yt_live_downloader.storage import DownloadStore
 from yt_live_downloader.worker import (
@@ -641,3 +642,217 @@ def test_audio_variant_extraction_produces_a_stored_mp3(tmp_path):
     assert completed["file_path"] == "Stream [abc123].mp3"
     assert (root / completed["file_path"]).stat().st_size > 0
     store.close()
+
+
+class LiveGuardScenario:
+    """Scripted live_status re-checks, capture passes, and media probes."""
+
+    def __init__(self, root, job, probes, media_durations):
+        self.root = root
+        self.job = job
+        self.staging = root / ".staging" / job["id"]
+        self.probes = list(probes)
+        self.media_durations = list(media_durations)
+        self.probe_index = 0
+        self.passes = 0
+        self.probe_media_calls = 0
+        self.on_pass = None
+
+    def next_probe(self):
+        return self.probes[min(self.probe_index, len(self.probes) - 1)]
+
+    def fake_probe_media(self, source):
+        assert Path(source).exists()
+        duration = self.media_durations[
+            min(self.probe_media_calls, len(self.media_durations) - 1)
+        ]
+        self.probe_media_calls += 1
+        return duration, True
+
+
+class LiveGuardYDL:
+    def __init__(self, options, scenario):
+        self.options = options
+        self.scenario = scenario
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def extract_info(self, _url, *, download):
+        assert download is False
+        probe = self.scenario.next_probe()
+        self.scenario.probe_index += 1
+        info = {
+            "id": "abc123",
+            "title": "Live stream",
+            "live_status": probe["live_status"],
+            "requested_formats": [VIDEO_FORMAT, AUDIO_FORMAT],
+        }
+        if probe.get("duration") is not None:
+            info["duration"] = probe["duration"]
+        return info
+
+    def process_ie_result(self, extracted, *, download):
+        assert download is True
+        scenario = self.scenario
+        scenario.staging.mkdir(parents=True, exist_ok=True)
+        output = scenario.staging / "abc123.mp4"
+        output.write_bytes(b"media" * (scenario.passes + 1))
+        scenario.passes += 1
+        for fmt, size in ((VIDEO_FORMAT, 100), (AUDIO_FORMAT, 50)):
+            event = {"info_dict": fmt, "downloaded_bytes": size, "total_bytes": size}
+            hook = self.options["progress_hooks"][0]
+            hook({"status": "downloading", **event})
+            hook({"status": "finished", **event})
+        self.options["post_hooks"][0](str(output))
+        if scenario.on_pass is not None:
+            scenario.on_pass(scenario)
+        return {**extracted, "filepath": str(output)}
+
+
+def run_live_guard_job(
+    tmp_path,
+    monkeypatch,
+    probes,
+    media_durations,
+    on_pass=None,
+    capture_pass_limit=None,
+):
+    root = tmp_path / "downloads"
+    store = DownloadStore(root)
+    job = store.create("https://www.youtube.com/watch?v=abc123")
+    store.close()
+
+    scenario = LiveGuardScenario(root, job, probes, media_durations)
+    scenario.on_pass = on_pass
+    monkeypatch.setattr(worker_module, "LIVE_REQUEUE_DELAY_SECONDS", 0.0)
+    monkeypatch.setattr(worker_module, "LIVE_CATCHUP_DELAY_SECONDS", 0.0)
+    monkeypatch.setattr(worker_module, "_probe_media", scenario.fake_probe_media)
+    if capture_pass_limit is not None:
+        monkeypatch.setattr(
+            worker_module, "MAX_LIVE_CAPTURE_PASSES", capture_pass_limit
+        )
+    monkeypatch.setattr(
+        yt_dlp, "YoutubeDL", lambda options: LiveGuardYDL(options, scenario)
+    )
+    exit_code = run_worker(root, job["id"], job["attempt"])
+    return root, job, scenario, exit_code
+
+
+def test_live_capture_requeues_full_capture_until_broadcast_finishes(
+    tmp_path, monkeypatch
+):
+    root, job, scenario, exit_code = run_live_guard_job(
+        tmp_path,
+        monkeypatch,
+        [
+            {"live_status": "is_live"},
+            {"live_status": "is_live"},
+            {"live_status": "is_live"},
+            {"live_status": "post_live", "duration": 600},
+        ],
+        [600.0],
+    )
+    assert exit_code == 0
+    assert scenario.probe_index == 4
+    assert scenario.passes == 3
+
+    reopened = DownloadStore(root)
+    completed = reopened.get(job["id"])
+    assert completed["state"] == "completed"
+    assert completed["file_path"] == "Live stream [abc123].mp4"
+    assert (root / completed["file_path"]).read_bytes() == b"media" * 3
+    reopened.close()
+
+
+def test_ended_stream_fully_captured_completes_with_single_pass(tmp_path, monkeypatch):
+    root, job, scenario, exit_code = run_live_guard_job(
+        tmp_path,
+        monkeypatch,
+        [
+            {"live_status": "is_live"},
+            {"live_status": "post_live", "duration": 600},
+        ],
+        [598.5],
+    )
+    assert exit_code == 0
+    assert scenario.probe_index == 2
+    assert scenario.passes == 1
+
+    reopened = DownloadStore(root)
+    completed = reopened.get(job["id"])
+    assert completed["state"] == "completed"
+    assert (root / completed["file_path"]).exists()
+    reopened.close()
+
+
+def test_live_capture_missing_stream_end_gets_catchup_pass(tmp_path, monkeypatch):
+    root, job, scenario, exit_code = run_live_guard_job(
+        tmp_path,
+        monkeypatch,
+        [
+            {"live_status": "is_live"},
+            {"live_status": "post_live", "duration": 600},
+            {"live_status": "post_live", "duration": 600},
+        ],
+        [400.0, 600.0],
+    )
+    assert exit_code == 0
+    assert scenario.passes == 2
+
+    reopened = DownloadStore(root)
+    completed = reopened.get(job["id"])
+    assert completed["state"] == "completed"
+    assert (root / completed["file_path"]).read_bytes() == b"media" * 2
+    reopened.close()
+
+
+def test_still_live_after_pass_budget_fails_instead_of_completing(
+    tmp_path, monkeypatch
+):
+    root, job, scenario, exit_code = run_live_guard_job(
+        tmp_path,
+        monkeypatch,
+        [{"live_status": "is_live"}],
+        [600.0],
+        capture_pass_limit=3,
+    )
+    assert exit_code == 1
+    assert scenario.passes == 4
+    assert scenario.probe_index == 5
+
+    reopened = DownloadStore(root)
+    failed = reopened.get(job["id"])
+    assert failed["state"] == "failed"
+    assert failed["error_summary"] == (
+        "The stream was still broadcasting after 4 capture passes"
+    )
+    assert not list(root.glob("*.mp4"))
+    reopened.close()
+
+
+def test_cancel_during_live_requeue_wait_exits_worker(tmp_path, monkeypatch):
+    def cancel_after_first_pass(scenario):
+        if scenario.passes == 1:
+            control = DownloadStore(scenario.root)
+            control.update(scenario.job["id"], state="cancelled")
+            control.close()
+
+    root, job, scenario, exit_code = run_live_guard_job(
+        tmp_path,
+        monkeypatch,
+        [{"live_status": "is_live"}],
+        [600.0],
+        on_pass=cancel_after_first_pass,
+    )
+    assert exit_code == 3
+    assert scenario.passes == 1
+
+    reopened = DownloadStore(root)
+    cancelled = reopened.get(job["id"])
+    assert cancelled["state"] == "cancelled"
+    assert not list(root.glob("*.mp4"))
+    reopened.close()
