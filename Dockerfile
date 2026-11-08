@@ -14,6 +14,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     XDG_CACHE_HOME=/tmp/.cache \
     DENO_DIR=/tmp/deno
 
+# Published base-image snapshots can lag Alpine's stable branch (e.g. zlib
+# 1.3.2-r1 in the base while Alpine main already shipped 1.4-r0 for
+# CVE-2026-4738). Upgrade the base packages before installing anything so
+# every image build carries Alpine's current security fixes. The explicit
+# floor fails the build on a lagging mirror index instead of silently
+# shipping the known-vulnerable zlib (mirror lag observed 2026-11-08).
+RUN apk upgrade --no-cache && apk add --no-cache "zlib>=1.4"
+
 # Deno comes from the Alpine package repository, not from PyPI: the `deno` PyPI
 # wheel is glibc-only and fails to build on musl. yt-dlp's default extras
 # (yt-dlp-ejs) auto-detect a `deno` binary on PATH, so requirements-docker.txt
@@ -30,7 +38,13 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 COPY requirements-docker.txt ./
-RUN python -m pip install --no-cache-dir -r requirements-docker.txt
+# pip is a build-time tool only: its vendored libraries (urllib3, msgpack,
+# setuptools, tracked in pip/_vendor/bom.cdx.json) are what image scanners
+# flag, and the ensurepip wheel bundles stale copies too. Install runtime
+# requirements, then remove pip and the bundled wheels from the final image.
+RUN python -m pip install --no-cache-dir -r requirements-docker.txt \
+    && python -m pip uninstall -y pip setuptools \
+    && rm -rf /usr/local/lib/python3.*/ensurepip
 
 COPY --chown=app:app *.py ./
 COPY --chown=app:app yt_live_downloader/ ./yt_live_downloader/
