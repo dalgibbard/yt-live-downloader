@@ -1,3 +1,5 @@
 Flask==3.1.3
 gunicorn==26.2.0
 yt-dlp[default,deno]==2026.10.26
+# Pinned so the resolver can't drift below the fixed version (CVE-2026-97687/8/9).
+urllib3==2.8.0
