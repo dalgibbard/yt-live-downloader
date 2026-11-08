@@ -14,6 +14,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     XDG_CACHE_HOME=/tmp/.cache \
     DENO_DIR=/tmp/deno
 
+# Published base-image snapshots can lag Alpine's stable branch (e.g. zlib
+# 1.3.2-r1 in the base while Alpine main already shipped 1.4-r0 for
+# CVE-2026-4738). Upgrade the base packages before installing anything so
+# every image build carries Alpine's current security fixes.
+RUN apk upgrade --no-cache
+
 # Deno comes from the Alpine package repository, not from PyPI: the `deno` PyPI
 # wheel is glibc-only and fails to build on musl. yt-dlp's default extras
 # (yt-dlp-ejs) auto-detect a `deno` binary on PATH, so requirements-docker.txt
