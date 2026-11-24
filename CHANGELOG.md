@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.4](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.3.3...yt-live-downloader-v1.3.4) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** refresh pins to latest upstream releases ([#29](https://github.com/dalgibbard/yt-live-downloader/issues/29)) ([0e7b768](https://github.com/dalgibbard/yt-live-downloader/commit/0e7b76894eff55589a268ed18b5cd86965a68d96))
+
 ## [1.3.3](https://github.com/dalgibbard/yt-live-downloader/compare/yt-live-downloader-v1.3.2...yt-live-downloader-v1.3.3) (2026-11-08)
 
 
